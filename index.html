@@ -24,13 +24,13 @@
     <script type="text/babel">
         const { useState, useEffect, useRef } = React;
 
-        // Initial Micro-Catalogue with dummy/approximate Sellmeier coeffs for fallback
+        // Initial Micro-Catalogue with default LD ranges (0.3 to 2.5um)
         const initialDatabase = [
-            { id: 'N-BK7-SCHOTT', name: 'N-BK7', catalog: 'SCHOTT', formula: 2, nd: 1.5168, vd: 64.17, coeffs: [1.03961212, 0.00600069867, 0.231792344, 0.0200179144, 1.01046945, 103.560653] },
-            { id: 'F2-SCHOTT', name: 'F2', catalog: 'SCHOTT', formula: 2, nd: 1.6200, vd: 36.37, coeffs: [1.34533359, 0.00997743871, 0.209073176, 0.0470450767, 0.937357162, 111.886764] },
-            { id: 'CaF2-SCHOTT', name: 'CaF2', catalog: 'SCHOTT', formula: 2, nd: 1.4338, vd: 95.10, coeffs: [0.5675888, 0.00252643, 0.4710914, 0.01007833, 3.8484723, 1200.556] },
-            { id: 'H-K9L-CDGM', name: 'H-K9L', catalog: 'CDGM', formula: 2, nd: 1.5168, vd: 64.20, coeffs: [1.03961212, 0.00600069867, 0.231792344, 0.0200179144, 1.01046945, 103.560653] },
-            { id: 'H-F4-CDGM', name: 'H-F4', catalog: 'CDGM', formula: 2, nd: 1.6166, vd: 36.61, coeffs: [1.34533359, 0.00997743871, 0.209073176, 0.0470450767, 0.937357162, 111.886764] }
+            { id: 'N-BK7-SCHOTT', name: 'N-BK7', catalog: 'SCHOTT', formula: 2, nd: 1.5168, vd: 64.17, coeffs: [1.03961212, 0.00600069867, 0.231792344, 0.0200179144, 1.01046945, 103.560653], ldMin: 0.3, ldMax: 2.5 },
+            { id: 'F2-SCHOTT', name: 'F2', catalog: 'SCHOTT', formula: 2, nd: 1.6200, vd: 36.37, coeffs: [1.34533359, 0.00997743871, 0.209073176, 0.0470450767, 0.937357162, 111.886764], ldMin: 0.33, ldMax: 2.5 },
+            { id: 'CaF2-SCHOTT', name: 'CaF2', catalog: 'SCHOTT', formula: 2, nd: 1.4338, vd: 95.10, coeffs: [0.5675888, 0.00252643, 0.4710914, 0.01007833, 3.8484723, 1200.556], ldMin: 0.2, ldMax: 8.0 },
+            { id: 'H-K9L-CDGM', name: 'H-K9L', catalog: 'CDGM', formula: 2, nd: 1.5168, vd: 64.20, coeffs: [1.03961212, 0.00600069867, 0.231792344, 0.0200179144, 1.01046945, 103.560653], ldMin: 0.3, ldMax: 2.5 },
+            { id: 'H-F4-CDGM', name: 'H-F4', catalog: 'CDGM', formula: 2, nd: 1.6166, vd: 36.61, coeffs: [1.34533359, 0.00997743871, 0.209073176, 0.0470450767, 0.937357162, 111.886764], ldMin: 0.33, ldMax: 2.5 }
         ];
 
         // Icons
@@ -40,91 +40,86 @@
         const IconInfo = () => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>;
         const IconClose = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>;
         const IconRefresh = () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>;
+        const IconSave = () => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>;
 
         const App = () => {
             const [database, setDatabase] = useState(initialDatabase);
             const [searchTerm, setSearchTerm] = useState('');
             const [filterCatalog, setFilterCatalog] = useState('ALL');
             const [message, setMessage] = useState('');
-            const [showHelp, setShowHelp] = useState(false);
+            const [showHelp, setShowHelp] = useState(true);
+            const [swapContext, setSwapContext] = useState(null); // { lensIndex: number, targetRole: 'CROWN'|'FLINT' }
+            const [swapFilterCatalog, setSwapFilterCatalog] = useState('ALL');
             
-            const [inputs, setInputs] = useState({
-                numLenses: 2,
-                efl: 1500,
-                fov: 1.5,
-                waveCenter: 587.6,
-                waveBand: 200,
-                m1Roc: -3000,
-                m1Conic: -1,
-                m2Roc: -500,
-                m2Conic: -2.5
-            });
-
+            const defaultInputs = {
+                numLenses: 2, efl: 1500, fov: 1.5, waveCenter: 587.6, waveBand: 200,
+                minThickness: 2.0, m1Roc: -3000, m1Conic: -1, m2Roc: -500, m2Conic: -2.5
+            };
+            const [inputs, setInputs] = useState(defaultInputs);
             const [results, setResults] = useState(null);
 
-            // Calculate Refractive Index based on AGF Formula
-            const getIndexAtWave = (glass, waveNm) => {
-                if (!glass.coeffs || glass.coeffs.length < 6) return glass.nd;
-                const w = waveNm / 1000.0; // Convert to micrometers
-                const w2 = w * w;
-                const c = glass.coeffs;
-                
+            useEffect(() => {
                 try {
-                    if (glass.formula === 1) { // Schott Formula
-                        const n2 = c[0] + c[1]*w2 + c[2]/w2 + c[3]/Math.pow(w, 4) + c[4]/Math.pow(w, 6) + c[5]/Math.pow(w, 8);
-                        return Math.sqrt(n2);
-                    } else if (glass.formula === 2) { // Sellmeier 1 Formula
-                        const n2 = 1 + (c[0]*w2)/(w2 - c[1]) + (c[2]*w2)/(w2 - c[3]) + (c[4]*w2)/(w2 - c[5]);
-                        return Math.sqrt(n2);
-                    }
-                } catch (e) {
-                    console.error("Dispersion calc failed", e);
-                }
-                return glass.nd; // Fallback
+                    const saved = localStorage.getItem('lensDesignerConfig');
+                    if (saved) setInputs(JSON.parse(saved));
+                } catch (e) { console.error("Failed to parse saved config."); }
+            }, []);
+
+            const saveConfig = () => {
+                try {
+                    localStorage.setItem('lensDesignerConfig', JSON.stringify(inputs));
+                    showMessage("Configuration successfully saved to local storage.");
+                } catch (e) { showMessage("Failed to save configuration.", true); }
             };
 
-            // Paraxial Transfer Matrix Method for Thick Lenses
+            const isValidWave = (glass, waveNm) => {
+                const w = waveNm / 1000.0;
+                return w >= glass.ldMin && w <= glass.ldMax;
+            };
+
+            const getIndexAtWave = (glass, waveNm) => {
+                if (!glass || !glass.coeffs || glass.coeffs.length < 6 || isNaN(waveNm) || waveNm <= 0) return glass ? glass.nd : 1.5;
+                const w = waveNm / 1000.0; 
+                const w2 = w * w;
+                const c = glass.coeffs;
+                try {
+                    let n2 = 0;
+                    if (glass.formula === 1) n2 = c[0] + c[1]*w2 + c[2]/w2 + c[3]/Math.pow(w, 4) + c[4]/Math.pow(w, 6) + c[5]/Math.pow(w, 8);
+                    else if (glass.formula === 2) n2 = 1 + (c[0]*w2)/(w2 - c[1]) + (c[2]*w2)/(w2 - c[3]) + (c[4]*w2)/(w2 - c[5]);
+                    else return glass.nd; 
+                    
+                    const actualNd = Math.sqrt(n2);
+                    return (!isNaN(actualNd) && actualNd > 1.0) ? actualNd : glass.nd;
+                } catch (e) { return glass.nd; }
+            };
+
             const calculateSystemMF = (lenses, targetEFL, waveNm) => {
                 const mult = (m1, m2) => [
                     m1[0]*m2[0] + m1[1]*m2[2], m1[0]*m2[1] + m1[1]*m2[3],
                     m1[2]*m2[0] + m1[3]*m2[2], m1[2]*m2[1] + m1[3]*m2[3]
                 ];
-                
-                let currentMatrix = [1, 0, 0, 1]; // Identity matrix
-                
+                let currentMatrix = [1, 0, 0, 1]; 
                 lenses.forEach(lens => {
                     const mat = database.find(g => g.name === lens.material && g.catalog === lens.catalog) || database[0];
                     const n = getIndexAtWave(mat, waveNm);
-                    
                     const r1 = parseFloat(lens.r1);
                     const P1 = isNaN(r1) || r1 === 0 ? 0 : (n - 1) / r1;
-                    const R1_mat = [1, 0, -P1, 1];
-                    currentMatrix = mult(R1_mat, currentMatrix);
-                    
+                    currentMatrix = mult([1, 0, -P1, 1], currentMatrix);
                     const t = parseFloat(lens.thickness);
-                    const T_mat = [1, t / n, 0, 1];
-                    currentMatrix = mult(T_mat, currentMatrix);
-                    
+                    currentMatrix = mult([1, t / n, 0, 1], currentMatrix);
                     const r2 = parseFloat(lens.r2);
                     const P2 = isNaN(r2) || r2 === 0 ? 0 : (1 - n) / r2;
-                    const R2_mat = [1, 0, -P2, 1];
-                    currentMatrix = mult(R2_mat, currentMatrix);
+                    currentMatrix = mult([1, 0, -P2, 1], currentMatrix);
                 });
-                
                 const sysPower = -currentMatrix[2];
                 const calcEFL = sysPower !== 0 ? 1 / sysPower : 999999;
-                
-                // MF = Squared Error of EFL
-                const eflError = Math.abs(calcEFL - targetEFL);
-                const mf = Math.pow(eflError, 2);
-                
+                const mf = Math.pow(Math.abs(calcEFL - targetEFL), 2);
                 return { calcEFL: calcEFL.toFixed(2), mf: mf.toFixed(2) };
             };
 
             const handleFileUpload = (event) => {
                 const file = event.target.files[0];
                 if (!file) return;
-
                 const reader = new FileReader();
                 reader.onload = (e) => {
                     const text = e.target.result;
@@ -135,34 +130,40 @@
 
                     lines.forEach(line => {
                         if (line.startsWith('NM ')) {
+                            if (currentGlass && currentGlass.nd > 1.0 && currentGlass.coeffs.length >= 6) {
+                                newGlasses.push(currentGlass);
+                            }
                             const parts = line.split(/\s+/);
                             if (parts.length >= 6) {
                                 currentGlass = {
                                     id: `${parts[1]}-${catalogName}`,
-                                    name: parts[1],
-                                    catalog: catalogName,
+                                    name: parts[1], catalog: catalogName,
                                     formula: parseInt(parts[2]) || 2,
-                                    nd: parseFloat(parts[4]),
-                                    vd: parseFloat(parts[5]),
-                                    coeffs: []
+                                    nd: parseFloat(parts[4]), vd: parseFloat(parts[5]),
+                                    coeffs: [], ldMin: 0.3, ldMax: 2.5 // Safe fallback bounds
                                 };
                             }
                         } else if (line.startsWith('CD ') && currentGlass) {
+                            currentGlass.coeffs = line.split(/\s+/).slice(1, 7).map(parseFloat);
+                        } else if (line.startsWith('LD ') && currentGlass) {
                             const parts = line.split(/\s+/);
-                            currentGlass.coeffs = parts.slice(1, 7).map(parseFloat);
-                            if (currentGlass.nd > 1.0) {
-                                newGlasses.push(currentGlass);
+                            if (parts.length >= 3) {
+                                currentGlass.ldMin = parseFloat(parts[1]);
+                                currentGlass.ldMax = parseFloat(parts[2]);
                             }
-                            currentGlass = null;
                         }
                     });
+                    
+                    if (currentGlass && currentGlass.nd > 1.0 && currentGlass.coeffs.length >= 6) {
+                        newGlasses.push(currentGlass);
+                    }
 
                     if (newGlasses.length > 0) {
                         setDatabase(prev => {
                             const merged = [...prev, ...newGlasses];
                             return Array.from(new Map(merged.map(item => [item.id, item])).values());
                         });
-                        showMessage(`Loaded ${newGlasses.length} materials with dispersion formulas from ${file.name}.`);
+                        showMessage(`Loaded ${newGlasses.length} valid materials from ${file.name}.`);
                     } else {
                         showMessage(`No valid material data found in ${file.name}.`, true);
                     }
@@ -181,30 +182,32 @@
             };
 
             const runOptimisation = () => {
-                if (database.length < 2) {
-                    showMessage("Database requires at least 2 materials.", true);
+                const validGlasses = database.filter(g => isValidWave(g, inputs.waveCenter));
+                if (validGlasses.length < 2) {
+                    showMessage("Error: Insufficient database materials support this λ wavelength.", true);
                     return;
                 }
 
-                const sortedDb = [...database].sort((a, b) => b.vd - a.vd);
+                const sortedDb = [...validGlasses].sort((a, b) => b.vd - a.vd);
                 const crownGlasses = sortedDb.slice(0, Math.max(1, Math.floor(sortedDb.length / 3)));
                 const flintGlasses = sortedDb.slice(Math.max(1, Math.floor(sortedDb.length * 2 / 3)));
 
                 let newResults = [];
-                let currentPower = 1 / inputs.efl; 
+                let currentPower = 1 / (inputs.efl || 1500); 
+                const minThickness = parseFloat(inputs.minThickness) || 1.0;
                 
                 for (let i = 0; i < inputs.numLenses; i++) {
                     const isCrown = i % 2 === 0;
                     const pool = isCrown ? crownGlasses : flintGlasses;
-                    const mat = pool[0]; // Start with primary for baseline
+                    const mat = pool[0] || sortedDb[0]; 
 
-                    const approxDia = inputs.efl * Math.tan((inputs.fov * Math.PI / 180) / 2) * 2;
-                    let thickness = Math.max(2.0, (approxDia * 0.1).toFixed(2));
+                    const approxDia = (inputs.efl || 1500) * Math.tan(((inputs.fov || 1.5) * Math.PI / 180) / 2) * 2;
+                    let thickness = Math.max(minThickness, parseFloat((approxDia * 0.1).toFixed(2)));
                     
                     let pwrCont = (isCrown ? 1 : -0.5) * (currentPower * 0.5); 
                     if (pwrCont === 0) pwrCont = 0.001;
                     
-                    const actualNd = getIndexAtWave(mat, inputs.waveCenter);
+                    let actualNd = getIndexAtWave(mat, inputs.waveCenter);
                     let r1 = ((actualNd - 1) / pwrCont).toFixed(2);
                     let r2 = (-r1).toFixed(2); 
                     
@@ -221,56 +224,27 @@
                         vd: mat.vd.toFixed(2),
                         r1: r1,
                         r2: r2,
-                        thickness: thickness,
+                        thickness: thickness.toFixed(2),
                         conic: 0 
                     });
                 }
 
                 const metrics = calculateSystemMF(newResults, inputs.efl, inputs.waveCenter);
-
-                setResults({
-                    timestamp: new Date().toLocaleTimeString(),
-                    lenses: newResults,
-                    metrics: metrics
-                });
-                showMessage("Prescription generated using target wavelength dispersion.");
+                setResults({ timestamp: new Date().toLocaleTimeString(), lenses: newResults, metrics: metrics });
+                showMessage("Prescription generated enforcing LD boundary constraints.");
             };
 
-            const swapMaterial = (lensIndex) => {
-                if (!results) return;
-                
-                const lensToUpdate = results.lenses[lensIndex];
-                const sortedDb = [...database].sort((a, b) => b.vd - a.vd);
-                
-                // Identify the pool based on the element's achromatic role
-                const pool = lensToUpdate.isCrown 
-                    ? sortedDb.slice(0, Math.max(1, Math.floor(sortedDb.length / 3)))
-                    : sortedDb.slice(Math.max(1, Math.floor(sortedDb.length * 2 / 3)));
-                
-                const currentIndex = pool.findIndex(g => g.name === lensToUpdate.material && g.catalog === lensToUpdate.catalog);
-                const nextIndex = (currentIndex + 1) % pool.length;
-                const newMat = pool[nextIndex];
-
-                const actualNd = getIndexAtWave(newMat, inputs.waveCenter);
-
+            const executeSwap = (lensIndex, newMat) => {
+                let actualNd = getIndexAtWave(newMat, inputs.waveCenter);
                 let updatedLenses = [...results.lenses];
                 updatedLenses[lensIndex] = {
-                    ...lensToUpdate,
-                    material: newMat.name,
-                    catalog: newMat.catalog,
-                    nd: newMat.nd,
-                    actualNd: actualNd.toFixed(5),
-                    vd: newMat.vd.toFixed(2)
+                    ...updatedLenses[lensIndex],
+                    material: newMat.name, catalog: newMat.catalog,
+                    nd: newMat.nd, actualNd: actualNd.toFixed(5), vd: newMat.vd.toFixed(2)
                 };
-
-                // Recalculate Merit Function
                 const metrics = calculateSystemMF(updatedLenses, inputs.efl, inputs.waveCenter);
-
-                setResults({
-                    ...results,
-                    lenses: updatedLenses,
-                    metrics: metrics
-                });
+                setResults({ ...results, lenses: updatedLenses, metrics: metrics });
+                setSwapContext(null);
             };
 
             const filteredDB = database.filter(g => 
@@ -281,32 +255,83 @@
 
             const catalogs = ['ALL', ...new Set(database.map(g => g.catalog))];
 
+            // Render logic for Swap Modal Pool
+            let swapPool = [];
+            if (swapContext) {
+                const validWavelengthGlasses = database.filter(g => isValidWave(g, inputs.waveCenter));
+                const sortedDb = [...validWavelengthGlasses].sort((a, b) => b.vd - a.vd);
+                
+                const basePool = swapContext.targetRole === 'CROWN' 
+                    ? sortedDb.slice(0, Math.max(1, Math.floor(sortedDb.length / 3)))
+                    : sortedDb.slice(Math.max(1, Math.floor(sortedDb.length * 2 / 3)));
+
+                swapPool = basePool.filter(g => swapFilterCatalog === 'ALL' || g.catalog === swapFilterCatalog);
+            }
+
             return (
                 <div className="min-h-screen p-4 md:p-6 flex flex-col gap-6 relative">
                     
-                    {/* Help Modal */}
+                    {/* Splash Screen / Help Modal */}
                     {showHelp && (
-                        <div className="fixed inset-0 z-50 flex items-center justify-center modal-overlay p-4">
-                            <div className="bg-slate-800 border border-slate-600 rounded-xl shadow-2xl max-w-2xl w-full p-6 relative">
-                                <button onClick={() => setShowHelp(false)} className="absolute top-4 right-4 text-slate-400 hover:text-white"><IconClose /></button>
+                        <div className="fixed inset-0 z-[999] flex items-center justify-center modal-overlay p-4" onClick={() => setShowHelp(false)}>
+                            <div className="bg-slate-800 border border-slate-600 rounded-xl shadow-2xl max-w-2xl w-full p-6 relative cursor-default" onClick={(e) => e.stopPropagation()}>
+                                <button onClick={() => setShowHelp(false)} className="absolute top-4 right-4 text-slate-400 hover:text-white transition-colors" title="Close Help"><IconClose /></button>
                                 <h2 className="text-2xl font-bold text-emerald-400 mb-4 border-b border-slate-700 pb-2">Heuristic Calculation Engine</h2>
                                 
-                                <div className="space-y-4 text-sm text-slate-300">
-                                    <div>
-                                        <h3 className="text-white font-semibold mb-1">1. Wavelength Dispersion (Sellmeier/Schott)</h3>
-                                        <p>The system interprets the **CD** blocks of the uploaded **.AGF** catalogue to execute Formula 1 (Schott) or Formula 2 (Sellmeier 1). This ensures that the indices used in power distribution strictly correlate with the physics of your selected $\lambda$ Center.</p>
-                                    </div>
-                                    <div>
-                                        <h3 className="text-white font-semibold mb-1">2. Merit Function (MF) & Paraxial Matrix</h3>
-                                        <p>A first-order **Transfer Matrix Method (TMM)** traces the prescribed optical path. The effective focal length (EFL) of the generated sub-assembly is isolated from the system matrix. The **MF** represents the squared delta $(EFL_{calc} - EFL_{target})^2$.</p>
-                                    </div>
-                                    <div>
-                                        <h3 className="text-white font-semibold mb-1">3. Manual Permutation (Material Swapping)</h3>
-                                        <p>Clicking the swap icon on any lens loops through valid **Crown** or **Flint** alternatives within your EU-sourced database, updating the dispersion coefficients and **MF** in real-time without overwriting the radii.</p>
-                                    </div>
+                                <div className="space-y-4 text-sm text-slate-300 max-h-[60vh] overflow-y-auto pr-2">
+                                    <div><h3 className="text-white font-semibold mb-1">1. LD Wavelength Quarantining</h3><p>The parser accurately extracts **LD** (Limits of Dispersion) from the **.AGF** catalogues. Any glass whose valid bandwidth ($\mu m$) fails to encompass your selected $\lambda$ Centre is mathematically eliminated from the active pool.</p></div>
+                                    <div><h3 className="text-white font-semibold mb-1">2. Targetted Material Permutation</h3><p>The manual swap function now summons a dedicated UI. This ensures replacement glasses maintain the element's strict chromatic requirement (**Crown** or **Flint**) while allowing specific **Catalogue Sourcing** filtering.</p></div>
+                                    <div><h3 className="text-white font-semibold mb-1">3. Thickness Constraints & Storage</h3><p>Calculated thicknesses are clamped mathematically against the selected **Min Thickness** parameter. Your entire configuration can now be securely stored to browser **localStorage**.</p></div>
                                 </div>
-                                <div className="mt-6 pt-4 border-t border-slate-700 text-right">
-                                    <button onClick={() => setShowHelp(false)} className="bg-slate-700 hover:bg-slate-600 text-white px-6 py-2 rounded-lg font-medium">Acknowledge</button>
+                                <div className="mt-6 pt-4 border-t border-slate-700 flex justify-end">
+                                    <button onClick={() => setShowHelp(false)} className="bg-emerald-600 hover:bg-emerald-500 text-white px-6 py-2 rounded-lg font-medium transition-colors">Acknowledge & Start</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Swap Modal */}
+                    {swapContext && (
+                        <div className="fixed inset-0 z-[990] flex items-center justify-center modal-overlay p-4" onClick={() => setSwapContext(null)}>
+                            <div className="bg-slate-800 border border-slate-600 rounded-xl shadow-2xl max-w-lg w-full p-6 relative cursor-default flex flex-col max-h-[80vh]" onClick={(e) => e.stopPropagation()}>
+                                <button onClick={() => setSwapContext(null)} className="absolute top-4 right-4 text-slate-400 hover:text-white transition-colors"><IconClose /></button>
+                                <h2 className="text-xl font-bold text-emerald-400 mb-2">Material Substitution</h2>
+                                <p className="text-xs text-slate-400 mb-4 pb-4 border-b border-slate-700">Replacing Lens {swapContext.lensIndex + 1} • Requires <span className={`px-1.5 py-0.5 rounded text-white font-bold ${swapContext.targetRole === 'CROWN' ? 'bg-blue-900' : 'bg-rose-900'}`}>{swapContext.targetRole}</span> valid at {inputs.waveCenter} nm.</p>
+                                
+                                <div className="mb-4">
+                                    <label className="block text-xs text-slate-400 mb-1">Filter by Catalogue Source:</label>
+                                    <select 
+                                        className="w-full bg-slate-900 border border-slate-600 rounded px-3 py-2 text-sm text-white focus:border-emerald-500 outline-none"
+                                        value={swapFilterCatalog}
+                                        onChange={(e) => setSwapFilterCatalog(e.target.value)}
+                                    >
+                                        {catalogs.map(cat => <option key={cat} value={cat}>{cat}</option>)}
+                                    </select>
+                                </div>
+
+                                <div className="flex-1 overflow-y-auto border border-slate-700 rounded bg-slate-900/50 p-2">
+                                    {swapPool.length === 0 ? (
+                                        <div className="text-center py-8 text-slate-500 text-sm">No valid materials found for this catalogue and wavelength constraints.</div>
+                                    ) : (
+                                        <div className="space-y-1">
+                                            {swapPool.map(mat => (
+                                                <button 
+                                                    key={mat.id} 
+                                                    onClick={() => executeSwap(swapContext.lensIndex, mat)}
+                                                    className="w-full text-left px-3 py-2 rounded hover:bg-emerald-900/40 border border-transparent hover:border-emerald-700 transition-colors flex justify-between items-center group"
+                                                >
+                                                    <div>
+                                                        <div className="font-mono text-emerald-300 group-hover:text-emerald-400">{mat.name}</div>
+                                                        <div className="text-xs text-slate-500">Cat: {mat.catalog} | Vd: {mat.vd.toFixed(2)}</div>
+                                                    </div>
+                                                    <div className="text-right">
+                                                        <div className="text-xs text-slate-400">Idx @ {inputs.waveCenter}</div>
+                                                        <div className="font-mono text-white text-sm">{getIndexAtWave(mat, inputs.waveCenter).toFixed(5)}</div>
+                                                    </div>
+                                                </button>
+                                            ))}
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                         </div>
@@ -316,9 +341,9 @@
                         <div>
                             <div className="flex items-center gap-3">
                                 <h1 className="text-2xl font-bold tracking-tight text-white">Advanced Optical Lens Designer</h1>
-                                <button onClick={() => setShowHelp(true)} className="p-1.5 bg-slate-800 text-emerald-400 rounded-full hover:bg-slate-700" title="View Math Models"><IconInfo /></button>
+                                <button onClick={() => setShowHelp(true)} className="p-1.5 bg-slate-800 text-emerald-400 rounded-full hover:bg-slate-700 transition-colors" title="View Math Models"><IconInfo /></button>
                             </div>
-                            <p className="text-sm text-slate-400">Paraxial Heuristic Engine v2.1 • Dispersion & Reflector Geometry Enabled</p>
+                            <p className="text-sm text-slate-400">Paraxial Heuristic Engine v2.4 • LD Validation & Explicit Swap</p>
                         </div>
                         {message && (
                             <div className="bg-blue-900/50 text-blue-200 px-4 py-2 rounded-lg border border-blue-700 text-sm animate-pulse">{message}</div>
@@ -337,58 +362,39 @@
                                         <input type="number" name="numLenses" value={inputs.numLenses} onChange={handleInputChange} min="1" max="10" className="w-full bg-slate-800 border border-slate-600 rounded p-2 text-sm focus:border-emerald-500 outline-none text-white" />
                                     </div>
                                     <div className="grid grid-cols-2 gap-2">
-                                        <div>
-                                            <label className="block text-xs text-slate-400 mb-1">Target EFL (mm)</label>
-                                            <input type="number" name="efl" value={inputs.efl} onChange={handleInputChange} className="w-full bg-slate-800 border border-slate-600 rounded p-2 text-sm focus:border-emerald-500 outline-none text-white" />
-                                        </div>
-                                        <div>
-                                            <label className="block text-xs text-slate-400 mb-1">Overall FoV (°)</label>
-                                            <input type="number" name="fov" value={inputs.fov} onChange={handleInputChange} className="w-full bg-slate-800 border border-slate-600 rounded p-2 text-sm focus:border-emerald-500 outline-none text-white" />
-                                        </div>
+                                        <div><label className="block text-xs text-slate-400 mb-1">Target EFL (mm)</label><input type="number" name="efl" value={inputs.efl} onChange={handleInputChange} className="w-full bg-slate-800 border border-slate-600 rounded p-2 text-sm focus:border-emerald-500 outline-none text-white" /></div>
+                                        <div><label className="block text-xs text-slate-400 mb-1">Overall FoV (°)</label><input type="number" name="fov" value={inputs.fov} onChange={handleInputChange} className="w-full bg-slate-800 border border-slate-600 rounded p-2 text-sm focus:border-emerald-500 outline-none text-white" /></div>
                                     </div>
                                     <div className="grid grid-cols-2 gap-2">
-                                        <div>
-                                            <label className="block text-xs text-slate-400 mb-1">λ Center (nm)</label>
-                                            <input type="number" name="waveCenter" value={inputs.waveCenter} onChange={handleInputChange} className="w-full bg-emerald-900/30 border border-emerald-600/50 rounded p-2 text-sm focus:border-emerald-500 outline-none text-emerald-300 font-bold" />
-                                        </div>
-                                        <div>
-                                            <label className="block text-xs text-slate-400 mb-1">λ Band (nm)</label>
-                                            <input type="number" name="waveBand" value={inputs.waveBand} onChange={handleInputChange} className="w-full bg-slate-800 border border-slate-600 rounded p-2 text-sm focus:border-emerald-500 outline-none text-white" />
-                                        </div>
+                                        <div><label className="block text-xs text-slate-400 mb-1">λ Center (nm)</label><input type="number" name="waveCenter" value={inputs.waveCenter} onChange={handleInputChange} className="w-full bg-emerald-900/30 border border-emerald-600/50 rounded p-2 text-sm focus:border-emerald-500 outline-none text-emerald-300 font-bold" /></div>
+                                        <div><label className="block text-xs text-slate-400 mb-1">λ Band (nm)</label><input type="number" name="waveBand" value={inputs.waveBand} onChange={handleInputChange} className="w-full bg-slate-800 border border-slate-600 rounded p-2 text-sm focus:border-emerald-500 outline-none text-white" /></div>
                                     </div>
+                                    <div><label className="block text-xs text-slate-400 mb-1">Min Centre Thickness (mm)</label><input type="number" name="minThickness" value={inputs.minThickness} onChange={handleInputChange} step="0.1" className="w-full bg-slate-800 border border-slate-600 rounded p-2 text-sm focus:border-emerald-500 outline-none text-white" /></div>
                                 </div>
                             </div>
 
-                            {/* RESTORED M1/M2 PANEL */}
                             <div className="glass-panel p-4 rounded-xl">
                                 <h2 className="text-lg font-semibold mb-4 text-blue-400">Reflector Geometry</h2>
                                 <div className="space-y-4">
                                     <div className="grid grid-cols-2 gap-2">
-                                        <div>
-                                            <label className="block text-xs text-slate-400 mb-1">M1 Radius (mm)</label>
-                                            <input type="number" name="m1Roc" value={inputs.m1Roc} onChange={handleInputChange} className="w-full bg-slate-800 border border-slate-600 rounded p-2 text-sm focus:border-blue-500 outline-none text-white" />
-                                        </div>
-                                        <div>
-                                            <label className="block text-xs text-slate-400 mb-1">M1 Conic</label>
-                                            <input type="number" name="m1Conic" value={inputs.m1Conic} onChange={handleInputChange} className="w-full bg-slate-800 border border-slate-600 rounded p-2 text-sm focus:border-blue-500 outline-none text-white" />
-                                        </div>
+                                        <div><label className="block text-xs text-slate-400 mb-1">M1 Radius</label><input type="number" name="m1Roc" value={inputs.m1Roc} onChange={handleInputChange} className="w-full bg-slate-800 border border-slate-600 rounded p-2 text-sm focus:border-blue-500 outline-none text-white" /></div>
+                                        <div><label className="block text-xs text-slate-400 mb-1">M1 Conic</label><input type="number" name="m1Conic" value={inputs.m1Conic} onChange={handleInputChange} className="w-full bg-slate-800 border border-slate-600 rounded p-2 text-sm focus:border-blue-500 outline-none text-white" /></div>
                                     </div>
                                     <div className="grid grid-cols-2 gap-2">
-                                        <div>
-                                            <label className="block text-xs text-slate-400 mb-1">M2 Radius (mm)</label>
-                                            <input type="number" name="m2Roc" value={inputs.m2Roc} onChange={handleInputChange} className="w-full bg-slate-800 border border-slate-600 rounded p-2 text-sm focus:border-blue-500 outline-none text-white" />
-                                        </div>
-                                        <div>
-                                            <label className="block text-xs text-slate-400 mb-1">M2 Conic</label>
-                                            <input type="number" name="m2Conic" value={inputs.m2Conic} onChange={handleInputChange} className="w-full bg-slate-800 border border-slate-600 rounded p-2 text-sm focus:border-blue-500 outline-none text-white" />
-                                        </div>
+                                        <div><label className="block text-xs text-slate-400 mb-1">M2 Radius</label><input type="number" name="m2Roc" value={inputs.m2Roc} onChange={handleInputChange} className="w-full bg-slate-800 border border-slate-600 rounded p-2 text-sm focus:border-blue-500 outline-none text-white" /></div>
+                                        <div><label className="block text-xs text-slate-400 mb-1">M2 Conic</label><input type="number" name="m2Conic" value={inputs.m2Conic} onChange={handleInputChange} className="w-full bg-slate-800 border border-slate-600 rounded p-2 text-sm focus:border-blue-500 outline-none text-white" /></div>
                                     </div>
                                 </div>
                             </div>
 
-                            <button onClick={runOptimisation} className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-medium py-3 px-4 rounded-xl transition-colors flex items-center justify-center gap-2 shadow-lg shadow-emerald-900/20">
-                                <IconPlay /> Run Baseline Optimisation
-                            </button>
+                            <div className="flex gap-2">
+                                <button onClick={saveConfig} className="flex-1 bg-slate-700 hover:bg-slate-600 text-white font-medium py-3 px-2 rounded-xl transition-colors flex items-center justify-center gap-2 shadow-lg">
+                                    <IconSave /> Save Config
+                                </button>
+                                <button onClick={runOptimisation} className="flex-[2] bg-emerald-600 hover:bg-emerald-500 text-white font-medium py-3 px-2 rounded-xl transition-colors flex items-center justify-center gap-2 shadow-lg shadow-emerald-900/20">
+                                    <IconPlay /> Optimise
+                                </button>
+                            </div>
                         </div>
 
                         {/* CENTER COLUMN: Results */}
@@ -416,45 +422,26 @@
                                                     <div className="flex justify-between items-center mb-2 border-b border-slate-700 pb-2">
                                                         <div className="flex items-center gap-2">
                                                             <h3 className="font-bold text-emerald-400">Lens {lens.lensNum}</h3>
-                                                            <span className={`text-[10px] px-1.5 py-0.5 rounded ${lens.isCrown ? 'bg-blue-900/50 text-blue-300' : 'bg-rose-900/50 text-rose-300'}`}>
-                                                                {lens.isCrown ? 'CROWN' : 'FLINT'}
-                                                            </span>
+                                                            <span className={`text-[10px] px-1.5 py-0.5 rounded ${lens.isCrown ? 'bg-blue-900/50 text-blue-300' : 'bg-rose-900/50 text-rose-300'}`}>{lens.isCrown ? 'CROWN' : 'FLINT'}</span>
                                                         </div>
                                                         <div className="flex items-center gap-2">
                                                             <span className="text-xs px-2 py-1 bg-slate-700 rounded text-slate-300">{lens.catalog}</span>
                                                             <button 
-                                                                onClick={() => swapMaterial(idx)}
-                                                                className="flex items-center gap-1 text-xs bg-slate-700 hover:bg-emerald-600 text-white px-2 py-1 rounded transition-colors"
-                                                                title="Cycle Alternative Material">
-                                                                <IconRefresh /> Swap
+                                                                onClick={() => setSwapContext({ lensIndex: idx, targetRole: lens.isCrown ? 'CROWN' : 'FLINT' })} 
+                                                                className="flex items-center gap-1 text-xs bg-slate-700 hover:bg-emerald-600 text-white px-2 py-1 rounded transition-colors" 
+                                                                title="Select Specific Material From Catalogue"
+                                                            >
+                                                                <IconRefresh /> Target Swap
                                                             </button>
                                                         </div>
                                                     </div>
                                                     <div className="grid grid-cols-2 gap-y-2 gap-x-4 text-sm mt-2">
-                                                        <div className="flex justify-between">
-                                                            <span className="text-slate-400">Material:</span>
-                                                            <span className="font-mono text-white font-bold">{lens.material}</span>
-                                                        </div>
-                                                        <div className="flex justify-between">
-                                                            <span className="text-slate-400">Thickness:</span>
-                                                            <span className="font-mono text-white">{lens.thickness} mm</span>
-                                                        </div>
-                                                        <div className="flex justify-between bg-emerald-900/20 rounded px-1 -mx-1">
-                                                            <span className="text-emerald-300/80">Index @ {inputs.waveCenter}nm:</span>
-                                                            <span className="font-mono text-emerald-300">{lens.actualNd}</span>
-                                                        </div>
-                                                        <div className="flex justify-between">
-                                                            <span className="text-slate-400">Abbe (Vd):</span>
-                                                            <span className="font-mono text-white">{lens.vd}</span>
-                                                        </div>
-                                                        <div className="flex justify-between">
-                                                            <span className="text-slate-400">R1 / Conic:</span>
-                                                            <span className="font-mono text-white">{lens.r1} / {lens.conic}</span>
-                                                        </div>
-                                                        <div className="flex justify-between">
-                                                            <span className="text-slate-400">R2 / Conic:</span>
-                                                            <span className="font-mono text-white">{lens.r2} / {lens.conic}</span>
-                                                        </div>
+                                                        <div className="flex justify-between"><span className="text-slate-400">Material:</span><span className="font-mono text-white font-bold">{lens.material}</span></div>
+                                                        <div className="flex justify-between"><span className="text-slate-400">Thickness:</span><span className="font-mono text-white">{lens.thickness} mm</span></div>
+                                                        <div className="flex justify-between bg-emerald-900/20 rounded px-1 -mx-1"><span className="text-emerald-300/80">Index @ {inputs.waveCenter}nm:</span><span className="font-mono text-emerald-300">{lens.actualNd}</span></div>
+                                                        <div className="flex justify-between"><span className="text-slate-400">Abbe (Vd):</span><span className="font-mono text-white">{lens.vd}</span></div>
+                                                        <div className="flex justify-between"><span className="text-slate-400">R1 / Conic:</span><span className="font-mono text-white">{lens.r1} / {lens.conic}</span></div>
+                                                        <div className="flex justify-between"><span className="text-slate-400">R2 / Conic:</span><span className="font-mono text-white">{lens.r2} / {lens.conic}</span></div>
                                                     </div>
                                                 </div>
                                             ))}
@@ -472,11 +459,19 @@
                                         Material Database
                                         <span className="bg-slate-700 text-xs py-0.5 px-2 rounded-full">{database.length}</span>
                                     </h2>
+                                    
                                     <div className="flex gap-2">
                                         <div className="relative flex-1">
                                             <div className="absolute inset-y-0 left-0 pl-2 flex items-center pointer-events-none text-slate-400"><IconSearch /></div>
                                             <input type="text" placeholder="Search glass..." className="w-full pl-8 pr-2 py-1.5 bg-slate-900 border border-slate-600 rounded text-sm focus:border-emerald-500 outline-none text-white" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
                                         </div>
+                                        <select 
+                                            className="bg-slate-900 border border-slate-600 rounded px-2 py-1.5 text-sm text-white focus:border-emerald-500 outline-none"
+                                            value={filterCatalog}
+                                            onChange={(e) => setFilterCatalog(e.target.value)}
+                                        >
+                                            {catalogs.map(cat => <option key={cat} value={cat}>{cat}</option>)}
+                                        </select>
                                     </div>
                                 </div>
 
@@ -486,7 +481,7 @@
                                             <tr>
                                                 <th className="px-3 py-2">Name</th>
                                                 <th className="px-3 py-2">Cat.</th>
-                                                <th className="px-3 py-2">Nd</th>
+                                                <th className="px-3 py-2">Band (μm)</th>
                                             </tr>
                                         </thead>
                                         <tbody>
@@ -494,7 +489,7 @@
                                                 <tr key={idx} className="border-b border-slate-700/50 hover:bg-slate-800 transition-colors">
                                                     <td className="px-3 py-2 font-mono text-emerald-400">{glass.name}</td>
                                                     <td className="px-3 py-2 text-xs text-slate-400">{glass.catalog}</td>
-                                                    <td className="px-3 py-2 font-mono">{glass.nd.toFixed(4)}</td>
+                                                    <td className="px-3 py-2 font-mono text-xs">{glass.ldMin}-{glass.ldMax}</td>
                                                 </tr>
                                             ))}
                                         </tbody>
