@@ -24,13 +24,14 @@
     <script type="text/babel">
         const { useState, useEffect, useRef } = React;
 
-        // Initial Micro-Catalogue with default LD ranges (0.3 to 2.5um)
+        // Micro-Catalogue containing standard and explicitly Apo-grade materials
         const initialDatabase = [
-            { id: 'N-BK7-SCHOTT', name: 'N-BK7', catalog: 'SCHOTT', formula: 2, nd: 1.5168, vd: 64.17, coeffs: [1.03961212, 0.00600069867, 0.231792344, 0.0200179144, 1.01046945, 103.560653], ldMin: 0.3, ldMax: 2.5 },
-            { id: 'F2-SCHOTT', name: 'F2', catalog: 'SCHOTT', formula: 2, nd: 1.6200, vd: 36.37, coeffs: [1.34533359, 0.00997743871, 0.209073176, 0.0470450767, 0.937357162, 111.886764], ldMin: 0.33, ldMax: 2.5 },
-            { id: 'CaF2-SCHOTT', name: 'CaF2', catalog: 'SCHOTT', formula: 2, nd: 1.4338, vd: 95.10, coeffs: [0.5675888, 0.00252643, 0.4710914, 0.01007833, 3.8484723, 1200.556], ldMin: 0.2, ldMax: 8.0 },
-            { id: 'H-K9L-CDGM', name: 'H-K9L', catalog: 'CDGM', formula: 2, nd: 1.5168, vd: 64.20, coeffs: [1.03961212, 0.00600069867, 0.231792344, 0.0200179144, 1.01046945, 103.560653], ldMin: 0.3, ldMax: 2.5 },
-            { id: 'H-F4-CDGM', name: 'H-F4', catalog: 'CDGM', formula: 2, nd: 1.6166, vd: 36.61, coeffs: [1.34533359, 0.00997743871, 0.209073176, 0.0470450767, 0.937357162, 111.886764], ldMin: 0.33, ldMax: 2.5 }
+            { id: 'N-BK7-SCHOTT', name: 'N-BK7', catalog: 'SCHOTT', formula: 2, nd: 1.5168, vd: 64.17, coeffs: [1.03961212, 0.00600069867, 0.231792344, 0.0200179144, 1.01046945, 103.560653], ldMin: 0.3, ldMax: 2.5, isApoGrade: false },
+            { id: 'F2-SCHOTT', name: 'F2', catalog: 'SCHOTT', formula: 2, nd: 1.6200, vd: 36.37, coeffs: [1.34533359, 0.00997743871, 0.209073176, 0.0470450767, 0.937357162, 111.886764], ldMin: 0.33, ldMax: 2.5, isApoGrade: false },
+            { id: 'CaF2-SCHOTT', name: 'CaF2', catalog: 'SCHOTT', formula: 2, nd: 1.4338, vd: 95.10, coeffs: [0.5675888, 0.00252643, 0.4710914, 0.01007833, 3.8484723, 1200.556], ldMin: 0.2, ldMax: 8.0, isApoGrade: true },
+            { id: 'N-PK52A-SCHOTT', name: 'N-PK52A', catalog: 'SCHOTT', formula: 2, nd: 1.4970, vd: 81.61, coeffs: [0.9312389, 0.0048154, 0.3015694, 0.0152541, 0.8906322, 110.1601], ldMin: 0.3, ldMax: 2.5, isApoGrade: true },
+            { id: 'H-K9L-CDGM', name: 'H-K9L', catalog: 'CDGM', formula: 2, nd: 1.5168, vd: 64.20, coeffs: [1.03961212, 0.00600069867, 0.231792344, 0.0200179144, 1.01046945, 103.560653], ldMin: 0.3, ldMax: 2.5, isApoGrade: false },
+            { id: 'H-F4-CDGM', name: 'H-F4', catalog: 'CDGM', formula: 2, nd: 1.6166, vd: 36.61, coeffs: [1.34533359, 0.00997743871, 0.209073176, 0.0470450767, 0.937357162, 111.886764], ldMin: 0.33, ldMax: 2.5, isApoGrade: false }
         ];
 
         // Icons
@@ -41,19 +42,22 @@
         const IconClose = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>;
         const IconRefresh = () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>;
         const IconSave = () => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>;
+        const IconFilter = () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>;
 
         const App = () => {
             const [database, setDatabase] = useState(initialDatabase);
             const [searchTerm, setSearchTerm] = useState('');
             const [filterCatalog, setFilterCatalog] = useState('ALL');
+            const [filterApo, setFilterApo] = useState(false);
             const [message, setMessage] = useState('');
             const [showHelp, setShowHelp] = useState(true);
-            const [swapContext, setSwapContext] = useState(null); // { lensIndex: number, targetRole: 'CROWN'|'FLINT' }
+            const [swapContext, setSwapContext] = useState(null); 
             const [swapFilterCatalog, setSwapFilterCatalog] = useState('ALL');
             
             const defaultInputs = {
                 numLenses: 2, efl: 1500, fov: 1.5, waveCenter: 587.6, waveBand: 200,
-                minThickness: 2.0, m1Roc: -3000, m1Conic: -1, m2Roc: -500, m2Conic: -2.5
+                minThickness: 2.0, m1Roc: -3000, m1Conic: -1, m2Roc: -500, m2Conic: -2.5,
+                m1m2Space: 1000, pupilDia: 300
             };
             const [inputs, setInputs] = useState(defaultInputs);
             const [results, setResults] = useState(null);
@@ -61,7 +65,7 @@
             useEffect(() => {
                 try {
                     const saved = localStorage.getItem('lensDesignerConfig');
-                    if (saved) setInputs(JSON.parse(saved));
+                    if (saved) setInputs({ ...defaultInputs, ...JSON.parse(saved) });
                 } catch (e) { console.error("Failed to parse saved config."); }
             }, []);
 
@@ -93,6 +97,23 @@
                 } catch (e) { return glass.nd; }
             };
 
+            // Calculate exact V and P based on user wavelength band
+            const calculatePV = (glass) => {
+                const wCenter = inputs.waveCenter;
+                const wShort = wCenter - (inputs.waveBand / 2);
+                const wLong = wCenter + (inputs.waveBand / 2);
+                
+                const nd = getIndexAtWave(glass, wCenter);
+                const nShort = getIndexAtWave(glass, wShort);
+                const nLong = getIndexAtWave(glass, wLong);
+                
+                const denominator = (nShort - nLong) || 1e-6; // Prevent div zero
+                const v = (nd - 1) / denominator;
+                const p = (nShort - nd) / denominator;
+                
+                return { v, p, nd };
+            };
+
             const calculateSystemMF = (lenses, targetEFL, waveNm) => {
                 const mult = (m1, m2) => [
                     m1[0]*m2[0] + m1[1]*m2[2], m1[0]*m2[1] + m1[1]*m2[3],
@@ -113,8 +134,11 @@
                 });
                 const sysPower = -currentMatrix[2];
                 const calcEFL = sysPower !== 0 ? 1 / sysPower : 999999;
-                const mf = Math.pow(Math.abs(calcEFL - targetEFL), 2);
-                return { calcEFL: calcEFL.toFixed(2), mf: mf.toFixed(2) };
+                
+                const mfRaw = Math.pow(Math.abs(calcEFL - targetEFL), 2);
+                const mfFormatted = mfRaw > 10000 ? mfRaw.toExponential(4) : mfRaw.toFixed(2);
+                
+                return { calcEFL: calcEFL.toFixed(2), mf: mfFormatted };
             };
 
             const handleFileUpload = (event) => {
@@ -135,12 +159,15 @@
                             }
                             const parts = line.split(/\s+/);
                             if (parts.length >= 6) {
+                                // Auto-flag known low-dispersion fluorides as Apo-grade
+                                const isApo = parts[1].includes('F2') || parts[1].includes('PK') || parts[1].includes('FK') || parseFloat(parts[5]) > 70;
                                 currentGlass = {
                                     id: `${parts[1]}-${catalogName}`,
                                     name: parts[1], catalog: catalogName,
                                     formula: parseInt(parts[2]) || 2,
                                     nd: parseFloat(parts[4]), vd: parseFloat(parts[5]),
-                                    coeffs: [], ldMin: 0.3, ldMax: 2.5 // Safe fallback bounds
+                                    coeffs: [], ldMin: 0.3, ldMax: 2.5,
+                                    isApoGrade: isApo 
                                 };
                             }
                         } else if (line.startsWith('CD ') && currentGlass) {
@@ -181,34 +208,71 @@
                 setInputs(prev => ({ ...prev, [name]: parseFloat(value) || value }));
             };
 
-            const runOptimisation = () => {
+            const runApochromaticOptimisation = () => {
                 const validGlasses = database.filter(g => isValidWave(g, inputs.waveCenter));
                 if (validGlasses.length < 2) {
                     showMessage("Error: Insufficient database materials support this λ wavelength.", true);
                     return;
                 }
 
-                const sortedDb = [...validGlasses].sort((a, b) => b.vd - a.vd);
-                const crownGlasses = sortedDb.slice(0, Math.max(1, Math.floor(sortedDb.length / 3)));
-                const flintGlasses = sortedDb.slice(Math.max(1, Math.floor(sortedDb.length * 2 / 3)));
+                // Compute exact P and V for all valid glasses
+                const pvMap = validGlasses.map(g => ({ glass: g, ...calculatePV(g) }));
+                
+                // Heuristic: Find the best Crown/Flint pair to minimise delta P, maximise delta V
+                let bestPair = null;
+                let bestScore = -999999;
+                
+                const crowns = pvMap.filter(g => g.v > 50);
+                const flints = pvMap.filter(g => g.v <= 50);
+                
+                if (crowns.length === 0 || flints.length === 0) {
+                    showMessage("Error: Database lacks sufficient dispersion variety for Apo mapping.", true);
+                    return;
+                }
+
+                crowns.forEach(c => {
+                    flints.forEach(f => {
+                        const deltaP = Math.abs(c.p - f.p);
+                        const deltaV = Math.abs(c.v - f.v);
+                        if (deltaV > 15) {
+                            // Weight score: Heavily penalise P mismatch, reward V difference
+                            const score = deltaV - (deltaP * 5000); 
+                            if (score > bestScore) {
+                                bestScore = score;
+                                bestPair = { crown: c, flint: f };
+                            }
+                        }
+                    });
+                });
+
+                if (!bestPair) bestPair = { crown: crowns[0], flint: flints[0] }; // Fallback
 
                 let newResults = [];
-                let currentPower = 1 / (inputs.efl || 1500); 
+                const targetPower = 1 / (inputs.efl || 1500); 
                 const minThickness = parseFloat(inputs.minThickness) || 1.0;
+                const numLenses = parseInt(inputs.numLenses) || 2;
                 
-                for (let i = 0; i < inputs.numLenses; i++) {
+                for (let i = 0; i < numLenses; i++) {
+                    // For > 2 lenses, alternate basic logic, but true apochromatism is seeded in the first doublet pair
                     const isCrown = i % 2 === 0;
-                    const pool = isCrown ? crownGlasses : flintGlasses;
-                    const mat = pool[0] || sortedDb[0]; 
+                    const pvMat = isCrown ? bestPair.crown : bestPair.flint;
 
                     const approxDia = (inputs.efl || 1500) * Math.tan(((inputs.fov || 1.5) * Math.PI / 180) / 2) * 2;
                     let thickness = Math.max(minThickness, parseFloat((approxDia * 0.1).toFixed(2)));
                     
-                    let pwrCont = (isCrown ? 1 : -0.5) * (currentPower * 0.5); 
-                    if (pwrCont === 0) pwrCont = 0.001;
+                    // Exact Apochromatic Power Distribution: Phi1 = Phi_sys * [V1 / (V1 - V2)]
+                    const dV = bestPair.crown.v - bestPair.flint.v;
+                    let pwrCont = isCrown 
+                        ? targetPower * (bestPair.crown.v / dV)
+                        : targetPower * (-bestPair.flint.v / dV);
                     
-                    let actualNd = getIndexAtWave(mat, inputs.waveCenter);
-                    let r1 = ((actualNd - 1) / pwrCont).toFixed(2);
+                    if (numLenses > 2) {
+                        // Dampen analytical power for N>2 to allow optimiser freedom without exceeding Target EFL
+                        pwrCont = pwrCont * (2 / numLenses);
+                    }
+                    if (pwrCont === 0) pwrCont = 0.0001;
+                    
+                    let r1 = ((pvMat.nd - 1) / pwrCont).toFixed(2);
                     let r2 = (-r1).toFixed(2); 
                     
                     if (Math.abs(r1) > 10000) r1 = "Infinity";
@@ -217,11 +281,12 @@
                     newResults.push({
                         lensNum: i + 1,
                         isCrown: isCrown,
-                        material: mat.name,
-                        catalog: mat.catalog,
-                        nd: mat.nd,
-                        actualNd: actualNd.toFixed(5),
-                        vd: mat.vd.toFixed(2),
+                        material: pvMat.glass.name,
+                        catalog: pvMat.glass.catalog,
+                        nd: pvMat.glass.nd,
+                        actualNd: pvMat.nd.toFixed(5),
+                        vd: pvMat.v.toFixed(2),
+                        pd: pvMat.p.toFixed(4),
                         r1: r1,
                         r2: r2,
                         thickness: thickness.toFixed(2),
@@ -231,16 +296,16 @@
 
                 const metrics = calculateSystemMF(newResults, inputs.efl, inputs.waveCenter);
                 setResults({ timestamp: new Date().toLocaleTimeString(), lenses: newResults, metrics: metrics });
-                showMessage("Prescription generated enforcing LD boundary constraints.");
+                showMessage("Prescription generated via P vs V Analytical Mapping.");
             };
 
             const executeSwap = (lensIndex, newMat) => {
-                let actualNd = getIndexAtWave(newMat, inputs.waveCenter);
+                const pvMat = calculatePV(newMat);
                 let updatedLenses = [...results.lenses];
                 updatedLenses[lensIndex] = {
                     ...updatedLenses[lensIndex],
                     material: newMat.name, catalog: newMat.catalog,
-                    nd: newMat.nd, actualNd: actualNd.toFixed(5), vd: newMat.vd.toFixed(2)
+                    nd: newMat.nd, actualNd: pvMat.nd.toFixed(5), vd: pvMat.v.toFixed(2), pd: pvMat.p.toFixed(4)
                 };
                 const metrics = calculateSystemMF(updatedLenses, inputs.efl, inputs.waveCenter);
                 setResults({ ...results, lenses: updatedLenses, metrics: metrics });
@@ -249,6 +314,7 @@
 
             const filteredDB = database.filter(g => 
                 (filterCatalog === 'ALL' || g.catalog === filterCatalog) &&
+                (!filterApo || g.isApoGrade) &&
                 (g.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
                  g.catalog.toLowerCase().includes(searchTerm.toLowerCase()))
             );
@@ -259,13 +325,13 @@
             let swapPool = [];
             if (swapContext) {
                 const validWavelengthGlasses = database.filter(g => isValidWave(g, inputs.waveCenter));
-                const sortedDb = [...validWavelengthGlasses].sort((a, b) => b.vd - a.vd);
+                const pvMap = validWavelengthGlasses.map(g => ({ glass: g, ...calculatePV(g) }));
                 
                 const basePool = swapContext.targetRole === 'CROWN' 
-                    ? sortedDb.slice(0, Math.max(1, Math.floor(sortedDb.length / 3)))
-                    : sortedDb.slice(Math.max(1, Math.floor(sortedDb.length * 2 / 3)));
+                    ? pvMap.filter(g => g.v > 50)
+                    : pvMap.filter(g => g.v <= 50);
 
-                swapPool = basePool.filter(g => swapFilterCatalog === 'ALL' || g.catalog === swapFilterCatalog);
+                swapPool = basePool.filter(pv => swapFilterCatalog === 'ALL' || pv.glass.catalog === swapFilterCatalog);
             }
 
             return (
@@ -276,12 +342,12 @@
                         <div className="fixed inset-0 z-[999] flex items-center justify-center modal-overlay p-4" onClick={() => setShowHelp(false)}>
                             <div className="bg-slate-800 border border-slate-600 rounded-xl shadow-2xl max-w-2xl w-full p-6 relative cursor-default" onClick={(e) => e.stopPropagation()}>
                                 <button onClick={() => setShowHelp(false)} className="absolute top-4 right-4 text-slate-400 hover:text-white transition-colors" title="Close Help"><IconClose /></button>
-                                <h2 className="text-2xl font-bold text-emerald-400 mb-4 border-b border-slate-700 pb-2">Heuristic Calculation Engine</h2>
+                                <h2 className="text-2xl font-bold text-emerald-400 mb-4 border-b border-slate-700 pb-2">Analytical Apochromatic Engine</h2>
                                 
                                 <div className="space-y-4 text-sm text-slate-300 max-h-[60vh] overflow-y-auto pr-2">
-                                    <div><h3 className="text-white font-semibold mb-1">1. LD Wavelength Quarantining</h3><p>The parser accurately extracts **LD** (Limits of Dispersion) from the **.AGF** catalogues. Any glass whose valid bandwidth ($\mu m$) fails to encompass your selected $\lambda$ Centre is mathematically eliminated from the active pool.</p></div>
-                                    <div><h3 className="text-white font-semibold mb-1">2. Targetted Material Permutation</h3><p>The manual swap function now summons a dedicated UI. This ensures replacement glasses maintain the element's strict chromatic requirement (**Crown** or **Flint**) while allowing specific **Catalogue Sourcing** filtering.</p></div>
-                                    <div><h3 className="text-white font-semibold mb-1">3. Thickness Constraints & Storage</h3><p>Calculated thicknesses are clamped mathematically against the selected **Min Thickness** parameter. Your entire configuration can now be securely stored to browser **localStorage**.</p></div>
+                                    <div><h3 className="text-white font-semibold mb-1">1. P vs V Dispersion Mapping</h3><p>Unlike standard achromats, this engine calculates both the exact Abbe Number (V) and Relative Partial Dispersion (P) dynamically for your specific λ boundary inputs. It automatically pairs materials by minimising ΔP while maximising ΔV to analytically target secondary spectrum elimination.</p></div>
+                                    <div><h3 className="text-white font-semibold mb-1">2. Exact Power Formulation</h3><p>Instead of basic heuristics, optical power is distributed analytically: Φ_1 = Φ_sys * [V_1 / (V_1 - V_2)]. This precisely balances the primary colour foci prior to the paraxial thick-lens translation error evaluated by the Merit Function.</p></div>
+                                    <div><h3 className="text-white font-semibold mb-1">3. Reflector Geometry Prerequisites</h3><p>The system now captures **M1-M2 Separation** and **Entrance Pupil Diameter (EPD)**. While the current apochromatic matrix strictly solves for chromatic focal shift, capturing this geometry is the prerequisite for calculating marginal ray heights and tracing third-order Seidel aberrations.</p></div>
                                 </div>
                                 <div className="mt-6 pt-4 border-t border-slate-700 flex justify-end">
                                     <button onClick={() => setShowHelp(false)} className="bg-emerald-600 hover:bg-emerald-500 text-white px-6 py-2 rounded-lg font-medium transition-colors">Acknowledge & Start</button>
@@ -295,7 +361,7 @@
                         <div className="fixed inset-0 z-[990] flex items-center justify-center modal-overlay p-4" onClick={() => setSwapContext(null)}>
                             <div className="bg-slate-800 border border-slate-600 rounded-xl shadow-2xl max-w-lg w-full p-6 relative cursor-default flex flex-col max-h-[80vh]" onClick={(e) => e.stopPropagation()}>
                                 <button onClick={() => setSwapContext(null)} className="absolute top-4 right-4 text-slate-400 hover:text-white transition-colors"><IconClose /></button>
-                                <h2 className="text-xl font-bold text-emerald-400 mb-2">Material Substitution</h2>
+                                <h2 className="text-xl font-bold text-emerald-400 mb-2">Apochromatic Material Substitution</h2>
                                 <p className="text-xs text-slate-400 mb-4 pb-4 border-b border-slate-700">Replacing Lens {swapContext.lensIndex + 1} • Requires <span className={`px-1.5 py-0.5 rounded text-white font-bold ${swapContext.targetRole === 'CROWN' ? 'bg-blue-900' : 'bg-rose-900'}`}>{swapContext.targetRole}</span> valid at {inputs.waveCenter} nm.</p>
                                 
                                 <div className="mb-4">
@@ -311,22 +377,22 @@
 
                                 <div className="flex-1 overflow-y-auto border border-slate-700 rounded bg-slate-900/50 p-2">
                                     {swapPool.length === 0 ? (
-                                        <div className="text-center py-8 text-slate-500 text-sm">No valid materials found for this catalogue and wavelength constraints.</div>
+                                        <div className="text-center py-8 text-slate-500 text-sm">No valid materials found.</div>
                                     ) : (
                                         <div className="space-y-1">
-                                            {swapPool.map(mat => (
+                                            {swapPool.map(pv => (
                                                 <button 
-                                                    key={mat.id} 
-                                                    onClick={() => executeSwap(swapContext.lensIndex, mat)}
+                                                    key={pv.glass.id} 
+                                                    onClick={() => executeSwap(swapContext.lensIndex, pv.glass)}
                                                     className="w-full text-left px-3 py-2 rounded hover:bg-emerald-900/40 border border-transparent hover:border-emerald-700 transition-colors flex justify-between items-center group"
                                                 >
                                                     <div>
-                                                        <div className="font-mono text-emerald-300 group-hover:text-emerald-400">{mat.name}</div>
-                                                        <div className="text-xs text-slate-500">Cat: {mat.catalog} | Vd: {mat.vd.toFixed(2)}</div>
+                                                        <div className="font-mono text-emerald-300 group-hover:text-emerald-400">{pv.glass.name}</div>
+                                                        <div className="text-xs text-slate-500">Cat: {pv.glass.catalog} | P: {pv.p.toFixed(4)}</div>
                                                     </div>
                                                     <div className="text-right">
-                                                        <div className="text-xs text-slate-400">Idx @ {inputs.waveCenter}</div>
-                                                        <div className="font-mono text-white text-sm">{getIndexAtWave(mat, inputs.waveCenter).toFixed(5)}</div>
+                                                        <div className="text-xs text-slate-400">V @ Target</div>
+                                                        <div className="font-mono text-white text-sm">{pv.v.toFixed(2)}</div>
                                                     </div>
                                                 </button>
                                             ))}
@@ -343,7 +409,7 @@
                                 <h1 className="text-2xl font-bold tracking-tight text-white">Advanced Optical Lens Designer</h1>
                                 <button onClick={() => setShowHelp(true)} className="p-1.5 bg-slate-800 text-emerald-400 rounded-full hover:bg-slate-700 transition-colors" title="View Math Models"><IconInfo /></button>
                             </div>
-                            <p className="text-sm text-slate-400">Paraxial Heuristic Engine v2.4 • LD Validation & Explicit Swap</p>
+                            <p className="text-sm text-slate-400">Paraxial Heuristic Engine v3.0 • Apochromatic P vs V Mapping</p>
                         </div>
                         {message && (
                             <div className="bg-blue-900/50 text-blue-200 px-4 py-2 rounded-lg border border-blue-700 text-sm animate-pulse">{message}</div>
@@ -384,6 +450,10 @@
                                         <div><label className="block text-xs text-slate-400 mb-1">M2 Radius</label><input type="number" name="m2Roc" value={inputs.m2Roc} onChange={handleInputChange} className="w-full bg-slate-800 border border-slate-600 rounded p-2 text-sm focus:border-blue-500 outline-none text-white" /></div>
                                         <div><label className="block text-xs text-slate-400 mb-1">M2 Conic</label><input type="number" name="m2Conic" value={inputs.m2Conic} onChange={handleInputChange} className="w-full bg-slate-800 border border-slate-600 rounded p-2 text-sm focus:border-blue-500 outline-none text-white" /></div>
                                     </div>
+                                    <div className="grid grid-cols-2 gap-2">
+                                        <div><label className="block text-xs text-slate-400 mb-1">M1-M2 Sep. (mm)</label><input type="number" name="m1m2Space" value={inputs.m1m2Space} onChange={handleInputChange} className="w-full bg-blue-900/30 border border-blue-600/50 rounded p-2 text-sm focus:border-blue-500 outline-none text-blue-300 font-bold" /></div>
+                                        <div><label className="block text-xs text-slate-400 mb-1">Entrance Pupil (mm)</label><input type="number" name="pupilDia" value={inputs.pupilDia} onChange={handleInputChange} className="w-full bg-blue-900/30 border border-blue-600/50 rounded p-2 text-sm focus:border-blue-500 outline-none text-blue-300 font-bold" /></div>
+                                    </div>
                                 </div>
                             </div>
 
@@ -391,8 +461,8 @@
                                 <button onClick={saveConfig} className="flex-1 bg-slate-700 hover:bg-slate-600 text-white font-medium py-3 px-2 rounded-xl transition-colors flex items-center justify-center gap-2 shadow-lg">
                                     <IconSave /> Save Config
                                 </button>
-                                <button onClick={runOptimisation} className="flex-[2] bg-emerald-600 hover:bg-emerald-500 text-white font-medium py-3 px-2 rounded-xl transition-colors flex items-center justify-center gap-2 shadow-lg shadow-emerald-900/20">
-                                    <IconPlay /> Optimise
+                                <button onClick={runApochromaticOptimisation} className="flex-[2] bg-emerald-600 hover:bg-emerald-500 text-white font-medium py-3 px-2 rounded-xl transition-colors flex items-center justify-center gap-2 shadow-lg shadow-emerald-900/20">
+                                    <IconPlay /> P-V Optimise
                                 </button>
                             </div>
                         </div>
@@ -401,7 +471,7 @@
                         <div className="lg:col-span-5 flex flex-col gap-4">
                             <div className="glass-panel rounded-xl flex-1 flex flex-col overflow-hidden">
                                 <div className="p-4 border-b border-slate-700 bg-slate-800/50 flex justify-between items-center">
-                                    <h2 className="text-lg font-semibold text-white">Optimised Prescription</h2>
+                                    <h2 className="text-lg font-semibold text-white">Apochromatic Prescription</h2>
                                     {results && (
                                         <div className="text-right">
                                             <div className="text-xs text-slate-400">Calculated EFL: <span className="text-white font-mono">{results.metrics.calcEFL}</span> mm</div>
@@ -413,7 +483,7 @@
                                     {!results ? (
                                         <div className="h-full flex flex-col items-center justify-center text-slate-500 space-y-4">
                                             <div className="w-16 h-16 rounded-full border-4 border-slate-700 border-t-emerald-500 animate-spin"></div>
-                                            <p>Awaiting System Inputs...</p>
+                                            <p>Awaiting Apochromatic Analysis...</p>
                                         </div>
                                     ) : (
                                         <div className="space-y-4">
@@ -438,8 +508,8 @@
                                                     <div className="grid grid-cols-2 gap-y-2 gap-x-4 text-sm mt-2">
                                                         <div className="flex justify-between"><span className="text-slate-400">Material:</span><span className="font-mono text-white font-bold">{lens.material}</span></div>
                                                         <div className="flex justify-between"><span className="text-slate-400">Thickness:</span><span className="font-mono text-white">{lens.thickness} mm</span></div>
-                                                        <div className="flex justify-between bg-emerald-900/20 rounded px-1 -mx-1"><span className="text-emerald-300/80">Index @ {inputs.waveCenter}nm:</span><span className="font-mono text-emerald-300">{lens.actualNd}</span></div>
-                                                        <div className="flex justify-between"><span className="text-slate-400">Abbe (Vd):</span><span className="font-mono text-white">{lens.vd}</span></div>
+                                                        <div className="flex justify-between bg-emerald-900/20 rounded px-1 -mx-1"><span className="text-emerald-300/80">Idx @ Cntr:</span><span className="font-mono text-emerald-300">{lens.actualNd}</span></div>
+                                                        <div className="flex justify-between"><span className="text-slate-400">Disp P/V:</span><span className="font-mono text-white">{lens.pd} / {lens.vd}</span></div>
                                                         <div className="flex justify-between"><span className="text-slate-400">R1 / Conic:</span><span className="font-mono text-white">{lens.r1} / {lens.conic}</span></div>
                                                         <div className="flex justify-between"><span className="text-slate-400">R2 / Conic:</span><span className="font-mono text-white">{lens.r2} / {lens.conic}</span></div>
                                                     </div>
@@ -465,8 +535,15 @@
                                             <div className="absolute inset-y-0 left-0 pl-2 flex items-center pointer-events-none text-slate-400"><IconSearch /></div>
                                             <input type="text" placeholder="Search glass..." className="w-full pl-8 pr-2 py-1.5 bg-slate-900 border border-slate-600 rounded text-sm focus:border-emerald-500 outline-none text-white" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
                                         </div>
+                                        <button 
+                                            onClick={() => setFilterApo(!filterApo)}
+                                            className={`p-1.5 rounded border transition-colors ${filterApo ? 'bg-emerald-900/50 border-emerald-500 text-emerald-400' : 'bg-slate-900 border-slate-600 text-slate-400 hover:text-white'}`}
+                                            title="Toggle Apo-Grade (Fluoride) Materials"
+                                        >
+                                            <IconFilter />
+                                        </button>
                                         <select 
-                                            className="bg-slate-900 border border-slate-600 rounded px-2 py-1.5 text-sm text-white focus:border-emerald-500 outline-none"
+                                            className="bg-slate-900 border border-slate-600 rounded px-2 py-1.5 text-sm text-white focus:border-emerald-500 outline-none w-24"
                                             value={filterCatalog}
                                             onChange={(e) => setFilterCatalog(e.target.value)}
                                         >
@@ -481,7 +558,7 @@
                                             <tr>
                                                 <th className="px-3 py-2">Name</th>
                                                 <th className="px-3 py-2">Cat.</th>
-                                                <th className="px-3 py-2">Band (μm)</th>
+                                                <th className="px-3 py-2 text-right">Apo-Grade</th>
                                             </tr>
                                         </thead>
                                         <tbody>
@@ -489,7 +566,9 @@
                                                 <tr key={idx} className="border-b border-slate-700/50 hover:bg-slate-800 transition-colors">
                                                     <td className="px-3 py-2 font-mono text-emerald-400">{glass.name}</td>
                                                     <td className="px-3 py-2 text-xs text-slate-400">{glass.catalog}</td>
-                                                    <td className="px-3 py-2 font-mono text-xs">{glass.ldMin}-{glass.ldMax}</td>
+                                                    <td className="px-3 py-2 text-right">
+                                                        {glass.isApoGrade ? <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block"></span> : <span className="w-2 h-2 rounded-full bg-slate-600 inline-block"></span>}
+                                                    </td>
                                                 </tr>
                                             ))}
                                         </tbody>
@@ -516,5 +595,3 @@
     </script>
 </body>
 </html>
-
-
