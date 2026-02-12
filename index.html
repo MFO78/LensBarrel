@@ -141,6 +141,34 @@
                 return { calcEFL: calcEFL.toFixed(2), mf: mfFormatted };
             };
 
+            // Paraxial Ray Trace (PRT) Helper
+            const traceMarginalRay = (m1Roc, m2Roc, spacing, epd) => {
+                // Simplified Paraxial Trace: Object @ Infinity -> M1 -> M2 -> Lens 1 Surface
+                // 1. Ray hits M1 at height y1 = EPD / 2
+                const y1 = epd / 2;
+                
+                // 2. Reflection at M1 (Power P1 = 2/R1)
+                // Angle u1_out = u1_in - y1 * P1. u1_in = 0 (infinity).
+                const P1 = 2.0 / m1Roc;
+                const u1_out = -y1 * P1;
+                
+                // 3. Transfer to M2 (distance = spacing)
+                // y2 = y1 + u1_out * spacing
+                const y2 = y1 + u1_out * spacing;
+                
+                // 4. Reflection at M2 (Power P2 = 2/R2)
+                // u2_out = u1_out - y2 * P2
+                const P2 = 2.0 / m2Roc;
+                const u2_out = u1_out - y2 * P2;
+                
+                // 5. Transfer to Lens 1 (Assume L1 is near M1 vertex ~ spacing distance back)
+                // Note: This is a Cassegrain-style assumption where correctors are near the primary hole.
+                const y_lens1 = y2 + u2_out * spacing;
+                
+                // Return absolute height for clear aperture estimation
+                return Math.abs(y_lens1);
+            };
+
             const handleFileUpload = (event) => {
                 const file = event.target.files[0];
                 if (!file) return;
@@ -252,12 +280,25 @@
                 const minThickness = parseFloat(inputs.minThickness) || 1.0;
                 const numLenses = parseInt(inputs.numLenses) || 2;
                 
+                // PRT Upgrade: Calculate geometric ray height
+                let geoRayHeight = 0;
+                if (inputs.m1Roc && inputs.m2Roc && inputs.m1m2Space && inputs.pupilDia) {
+                    geoRayHeight = traceMarginalRay(inputs.m1Roc, inputs.m2Roc, inputs.m1m2Space, inputs.pupilDia);
+                }
+                
                 for (let i = 0; i < numLenses; i++) {
                     // For > 2 lenses, alternate basic logic, but true apochromatism is seeded in the first doublet pair
                     const isCrown = i % 2 === 0;
                     const pvMat = isCrown ? bestPair.crown : bestPair.flint;
 
-                    const approxDia = (inputs.efl || 1500) * Math.tan(((inputs.fov || 1.5) * Math.PI / 180) / 2) * 2;
+                    // PRT Upgrade: Use traced ray height if valid, else fall back to FOV approx
+                    let approxDia = 0;
+                    if (geoRayHeight > 0) {
+                        approxDia = geoRayHeight * 2.2; // 10% safety margin on radius * 2 = diam
+                    } else {
+                        approxDia = (inputs.efl || 1500) * Math.tan(((inputs.fov || 1.5) * Math.PI / 180) / 2) * 2;
+                    }
+                    
                     let thickness = Math.max(minThickness, parseFloat((approxDia * 0.1).toFixed(2)));
                     
                     // Exact Apochromatic Power Distribution: Phi1 = Phi_sys * [V1 / (V1 - V2)]
@@ -296,7 +337,9 @@
 
                 const metrics = calculateSystemMF(newResults, inputs.efl, inputs.waveCenter);
                 setResults({ timestamp: new Date().toLocaleTimeString(), lenses: newResults, metrics: metrics });
-                showMessage("Prescription generated via P vs V Analytical Mapping.");
+                showMessage(geoRayHeight > 0 
+                    ? "Prescription generated using Active Paraxial Ray Trace (PRT)." 
+                    : "Prescription generated via P vs V Analytical Mapping (FOV approx).");
             };
 
             const executeSwap = (lensIndex, newMat) => {
@@ -345,9 +388,9 @@
                                 <h2 className="text-2xl font-bold text-emerald-400 mb-4 border-b border-slate-700 pb-2">Analytical Apochromatic Engine</h2>
                                 
                                 <div className="space-y-4 text-sm text-slate-300 max-h-[60vh] overflow-y-auto pr-2">
-                                    <div><h3 className="text-white font-semibold mb-1">1. P vs V Dispersion Mapping</h3><p>Unlike standard achromats, this engine calculates both the exact Abbe Number (V) and Relative Partial Dispersion (P) dynamically for your specific λ boundary inputs. It automatically pairs materials by minimising ΔP while maximising ΔV to analytically target secondary spectrum elimination.</p></div>
-                                    <div><h3 className="text-white font-semibold mb-1">2. Exact Power Formulation</h3><p>Instead of basic heuristics, optical power is distributed analytically: Φ_1 = Φ_sys * [V_1 / (V_1 - V_2)]. This precisely balances the primary colour foci prior to the paraxial thick-lens translation error evaluated by the Merit Function.</p></div>
-                                    <div><h3 className="text-white font-semibold mb-1">3. Reflector Geometry Prerequisites</h3><p>The system now captures **M1-M2 Separation** and **Entrance Pupil Diameter (EPD)**. While the current apochromatic matrix strictly solves for chromatic focal shift, capturing this geometry is the prerequisite for calculating marginal ray heights and tracing third-order Seidel aberrations.</p></div>
+                                    <div><h3 className="text-white font-semibold mb-1">1. Active Paraxial Ray Trace (PRT)</h3><p>The engine now explicitly traces the marginal ray from the Entrance Pupil through the M1 and M2 reflections. Lens diameters and edge thicknesses are driven by the actual physical light cone entering the corrector group.</p></div>
+                                    <div><h3 className="text-white font-semibold mb-1">2. P vs V Dispersion Mapping</h3><p>Unlike standard achromats, this engine calculates both the exact Abbe Number (V) and Relative Partial Dispersion (P) dynamically for your specific λ boundary inputs. It pairs materials by minimising ΔP while maximising ΔV.</p></div>
+                                    <div><h3 className="text-white font-semibold mb-1">3. Exact Power Formulation</h3><p>Instead of basic heuristics, optical power is distributed analytically: Φ_1 = Φ_sys * [V_1 / (V_1 - V_2)]. This precisely balances the primary colour foci prior to the paraxial thick-lens translation error.</p></div>
                                 </div>
                                 <div className="mt-6 pt-4 border-t border-slate-700 flex justify-end">
                                     <button onClick={() => setShowHelp(false)} className="bg-emerald-600 hover:bg-emerald-500 text-white px-6 py-2 rounded-lg font-medium transition-colors">Acknowledge & Start</button>
@@ -409,7 +452,7 @@
                                 <h1 className="text-2xl font-bold tracking-tight text-white">Advanced Optical Lens Designer</h1>
                                 <button onClick={() => setShowHelp(true)} className="p-1.5 bg-slate-800 text-emerald-400 rounded-full hover:bg-slate-700 transition-colors" title="View Math Models"><IconInfo /></button>
                             </div>
-                            <p className="text-sm text-slate-400">Paraxial Heuristic Engine v3.0 • Apochromatic P vs V Mapping</p>
+                            <p className="text-sm text-slate-400">Paraxial Heuristic Engine v3.1 • Active PRT Enabled</p>
                         </div>
                         {message && (
                             <div className="bg-blue-900/50 text-blue-200 px-4 py-2 rounded-lg border border-blue-700 text-sm animate-pulse">{message}</div>
