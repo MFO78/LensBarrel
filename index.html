@@ -291,10 +291,6 @@
                     const P1 = 2.0 / inputs.m1Roc;
                     const P2 = 2.0 / inputs.m2Roc;
                     
-                    // Simple Power Sum is P1 + P2 - d*P1*P2 for a two element system.
-                    // But here we have M1, spacing, M2, spacing (to lenses).
-                    // The power of the mirror system at the lens plane is complex to approximate linearly.
-                    // However, we can use the TMM to find the power of just the mirrors.
                     const mult = (m1, m2) => [
                         m1[0]*m2[0] + m1[1]*m2[2], m1[0]*m2[1] + m1[1]*m2[3],
                         m1[2]*m2[0] + m1[3]*m2[2], m1[2]*m2[1] + m1[3]*m2[3]
@@ -308,10 +304,6 @@
                 }
                 
                 const targetTotalPower = 1 / targetEFL;
-                // Since Power_total ~ P_mirrors + P_lenses (if close), we use the difference.
-                // Refined: P_tot = P_mir + P_lens - d*P_mir*P_lens is hard because d is 0 (lenses are after mirrors).
-                // Actually, if we treat the mirror block as "Element A" and Lens block as "Element B", separated by 0 distance (since we included transfer d2 in Mirror block),
-                // then P_tot = P_mir + P_lens.
                 const residualPower = targetTotalPower - mirrorSystemPower;
                 const designPower = (Math.abs(residualPower) < 1e-6) ? 1e-6 : residualPower;
 
@@ -326,7 +318,8 @@
                         approxDia = (inputs.efl || 1500) * Math.tan(((inputs.fov || 1.5) * Math.PI / 180) / 2) * 2;
                     }
                     
-                    let thickness = Math.max(minThickness, parseFloat((approxDia * 0.1).toFixed(2)));
+                    // Old thickness heuristic (removed)
+                    // let thickness = Math.max(minThickness, parseFloat((approxDia * 0.1).toFixed(2)));
                     
                     const dV = bestPair.crown.v - bestPair.flint.v;
                     let pwrCont = isCrown 
@@ -343,6 +336,30 @@
                     
                     if (Math.abs(r1) > 10000) r1 = "Infinity";
                     if (Math.abs(r2) > 10000) r2 = "Infinity";
+
+                    // New Realistic Thickness Logic using Sag calculation
+                    const safeRadius1 = Math.abs(parseFloat(r1)) > 0 ? Math.abs(parseFloat(r1)) : 1e9;
+                    const safeRadius2 = Math.abs(parseFloat(r2)) > 0 ? Math.abs(parseFloat(r2)) : 1e9;
+                    const semiDiam = approxDia / 2;
+                    
+                    // Sag approx: y^2 / 2R
+                    const sag1 = (semiDiam * semiDiam) / (2 * safeRadius1);
+                    const sag2 = (semiDiam * semiDiam) / (2 * safeRadius2);
+                    
+                    // For Positive (Crown) lenses: Center T > Edge T + Sags
+                    // For Negative (Flint) lenses: Center T = minThickness (Edge T will be larger)
+                    let thickness = minThickness;
+                    
+                    if (pwrCont > 0) { // Positive lens
+                       // Add sags to maintain minimum edge thickness at the rim
+                       thickness = minThickness + sag1 + sag2; 
+                    } else { // Negative lens
+                       // Center is the thinnest point, so clamp to min
+                       thickness = minThickness;
+                    }
+                    
+                    // Safety clamp for extreme values
+                    thickness = Math.min(Math.max(thickness, minThickness), approxDia * 2);
 
                     newResults.push({
                         lensNum: i + 1,
@@ -434,6 +451,10 @@
                                         <h3 className="text-white font-semibold mb-1">4. Analytical Apochromatic Logic</h3>
                                         <p>The solver dynamically calculates Abbe Number (V) and Relative Partial Dispersion (P) for your specific wavelength band. It pairs materials by minimising ΔP while maximising ΔV. Optical power is distributed using the equation Φ_1 = Φ_residual * [V_1 / (V_1 - V_2)] to target secondary spectrum elimination.</p>
                                     </div>
+                                    <div>
+                                        <h3 className="text-white font-semibold mb-1">5. Realistic Thickness Constraints</h3>
+                                        <p>Lens center thickness is now calculated using Sagitta geometry. Positive lenses are thickened to accommodate the curvature (Sag1 + Sag2 + MinEdge), while negative lenses are constrained by the minimum center thickness input, ensuring physically manufacturable aspect ratios.</p>
+                                    </div>
                                 </div>
                                 <div className="mt-6 pt-4 border-t border-slate-700 flex justify-end">
                                     <button onClick={() => setShowHelp(false)} className="bg-emerald-600 hover:bg-emerald-500 text-white px-6 py-2 rounded-lg font-medium transition-colors">Acknowledge & Start</button>
@@ -495,7 +516,7 @@
                                 <h1 className="text-2xl font-bold tracking-tight text-white">Advanced Optical Lens Designer</h1>
                                 <button onClick={() => setShowHelp(true)} className="p-1.5 bg-slate-800 text-emerald-400 rounded-full hover:bg-slate-700 transition-colors" title="View Math Models"><IconInfo /></button>
                             </div>
-                            <p className="text-sm text-slate-400">Paraxial Heuristic Engine v3.4 • BFL Analysis Enabled</p>
+                            <p className="text-sm text-slate-400">Paraxial Heuristic Engine v3.5 • Realistic Geometry</p>
                         </div>
                         {message && (
                             <div className="bg-blue-900/50 text-blue-200 px-4 py-2 rounded-lg border border-blue-700 text-sm animate-pulse">{message}</div>
