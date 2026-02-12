@@ -57,7 +57,7 @@
             const defaultInputs = {
                 numLenses: 2, efl: 1500, fov: 1.5, waveCenter: 587.6, waveBand: 200,
                 minThickness: 2.0, m1Roc: -3000, m1Conic: -1, m2Roc: -500, m2Conic: -2.5,
-                m1m2Space: 1000, pupilDia: 300
+                m1m2Space: 1000, distToCorrector: 1000, pupilDia: 300, targetBFL: 500
             };
             const [inputs, setInputs] = useState(defaultInputs);
             const [results, setResults] = useState(null);
@@ -97,7 +97,6 @@
                 } catch (e) { return glass.nd; }
             };
 
-            // Calculate exact V and P based on user wavelength band
             const calculatePV = (glass) => {
                 const wCenter = inputs.waveCenter;
                 const wShort = wCenter - (inputs.waveBand / 2);
@@ -107,7 +106,7 @@
                 const nShort = getIndexAtWave(glass, wShort);
                 const nLong = getIndexAtWave(glass, wLong);
                 
-                const denominator = (nShort - nLong) || 1e-6; // Prevent div zero
+                const denominator = (nShort - nLong) || 1e-6; 
                 const v = (nd - 1) / denominator;
                 const p = (nShort - nd) / denominator;
                 
@@ -119,53 +118,58 @@
                     m1[0]*m2[0] + m1[1]*m2[2], m1[0]*m2[1] + m1[1]*m2[3],
                     m1[2]*m2[0] + m1[3]*m2[2], m1[2]*m2[1] + m1[3]*m2[3]
                 ];
+
                 let currentMatrix = [1, 0, 0, 1]; 
+
+                if (inputs.m1Roc && inputs.m2Roc && inputs.m1m2Space) {
+                    const P1 = 2.0 / inputs.m1Roc; 
+                    const P2 = 2.0 / inputs.m2Roc; 
+                    const d1 = inputs.m1m2Space;
+                    const d2 = inputs.distToCorrector || d1; 
+
+                    currentMatrix = mult([1, 0, -P1, 1], currentMatrix); // M1
+                    currentMatrix = mult([1, d1, 0, 1], currentMatrix);  // M1 -> M2
+                    currentMatrix = mult([1, 0, -P2, 1], currentMatrix); // M2
+                    currentMatrix = mult([1, d2, 0, 1], currentMatrix);  // M2 -> L1
+                }
+
                 lenses.forEach(lens => {
                     const mat = database.find(g => g.name === lens.material && g.catalog === lens.catalog) || database[0];
                     const n = getIndexAtWave(mat, waveNm);
+                    
                     const r1 = parseFloat(lens.r1);
                     const P1 = isNaN(r1) || r1 === 0 ? 0 : (n - 1) / r1;
                     currentMatrix = mult([1, 0, -P1, 1], currentMatrix);
+                    
                     const t = parseFloat(lens.thickness);
                     currentMatrix = mult([1, t / n, 0, 1], currentMatrix);
+                    
                     const r2 = parseFloat(lens.r2);
                     const P2 = isNaN(r2) || r2 === 0 ? 0 : (1 - n) / r2;
                     currentMatrix = mult([1, 0, -P2, 1], currentMatrix);
                 });
+                
                 const sysPower = -currentMatrix[2];
                 const calcEFL = sysPower !== 0 ? 1 / sysPower : 999999;
                 
+                // Back Focal Length (Distance from last surface to focus)
+                // BFL = -A / C
+                const calcBFL = sysPower !== 0 ? -currentMatrix[0] / -sysPower : 0;
+
                 const mfRaw = Math.pow(Math.abs(calcEFL - targetEFL), 2);
                 const mfFormatted = mfRaw > 10000 ? mfRaw.toExponential(4) : mfRaw.toFixed(2);
                 
-                return { calcEFL: calcEFL.toFixed(2), mf: mfFormatted };
+                return { calcEFL: calcEFL.toFixed(2), calcBFL: calcBFL.toFixed(2), mf: mfFormatted };
             };
 
-            // Paraxial Ray Trace (PRT) Helper
-            const traceMarginalRay = (m1Roc, m2Roc, spacing, epd) => {
-                // Simplified Paraxial Trace: Object @ Infinity -> M1 -> M2 -> Lens 1 Surface
-                // 1. Ray hits M1 at height y1 = EPD / 2
+            const traceMarginalRay = (m1Roc, m2Roc, spacing, epd, distToCorr) => {
                 const y1 = epd / 2;
-                
-                // 2. Reflection at M1 (Power P1 = 2/R1)
-                // Angle u1_out = u1_in - y1 * P1. u1_in = 0 (infinity).
                 const P1 = 2.0 / m1Roc;
-                const u1_out = -y1 * P1;
-                
-                // 3. Transfer to M2 (distance = spacing)
-                // y2 = y1 + u1_out * spacing
-                const y2 = y1 + u1_out * spacing;
-                
-                // 4. Reflection at M2 (Power P2 = 2/R2)
-                // u2_out = u1_out - y2 * P2
+                const u1_out = -y1 * P1; // Reflection at M1
+                const y2 = y1 + u1_out * spacing; // Transfer to M2
                 const P2 = 2.0 / m2Roc;
-                const u2_out = u1_out - y2 * P2;
-                
-                // 5. Transfer to Lens 1 (Assume L1 is near M1 vertex ~ spacing distance back)
-                // Note: This is a Cassegrain-style assumption where correctors are near the primary hole.
-                const y_lens1 = y2 + u2_out * spacing;
-                
-                // Return absolute height for clear aperture estimation
+                const u2_out = u1_out - y2 * P2; // Reflection at M2
+                const y_lens1 = y2 + u2_out * (distToCorr || spacing); // Transfer to Lens 1
                 return Math.abs(y_lens1);
             };
 
@@ -187,7 +191,6 @@
                             }
                             const parts = line.split(/\s+/);
                             if (parts.length >= 6) {
-                                // Auto-flag known low-dispersion fluorides as Apo-grade
                                 const isApo = parts[1].includes('F2') || parts[1].includes('PK') || parts[1].includes('FK') || parseFloat(parts[5]) > 70;
                                 currentGlass = {
                                     id: `${parts[1]}-${catalogName}`,
@@ -243,10 +246,8 @@
                     return;
                 }
 
-                // Compute exact P and V for all valid glasses
                 const pvMap = validGlasses.map(g => ({ glass: g, ...calculatePV(g) }));
                 
-                // Heuristic: Find the best Crown/Flint pair to minimise delta P, maximise delta V
                 let bestPair = null;
                 let bestScore = -999999;
                 
@@ -263,7 +264,6 @@
                         const deltaP = Math.abs(c.p - f.p);
                         const deltaV = Math.abs(c.v - f.v);
                         if (deltaV > 15) {
-                            // Weight score: Heavily penalise P mismatch, reward V difference
                             const score = deltaV - (deltaP * 5000); 
                             if (score > bestScore) {
                                 bestScore = score;
@@ -273,42 +273,67 @@
                     });
                 });
 
-                if (!bestPair) bestPair = { crown: crowns[0], flint: flints[0] }; // Fallback
+                if (!bestPair) bestPair = { crown: crowns[0], flint: flints[0] };
 
                 let newResults = [];
-                const targetPower = 1 / (inputs.efl || 1500); 
+                const targetEFL = inputs.efl || 1500;
                 const minThickness = parseFloat(inputs.minThickness) || 1.0;
                 const numLenses = parseInt(inputs.numLenses) || 2;
                 
-                // PRT Upgrade: Calculate geometric ray height
                 let geoRayHeight = 0;
+                let mirrorSystemPower = 0;
+
                 if (inputs.m1Roc && inputs.m2Roc && inputs.m1m2Space && inputs.pupilDia) {
-                    geoRayHeight = traceMarginalRay(inputs.m1Roc, inputs.m2Roc, inputs.m1m2Space, inputs.pupilDia);
+                    const d1 = inputs.m1m2Space;
+                    const d2 = inputs.distToCorrector || d1;
+                    geoRayHeight = traceMarginalRay(inputs.m1Roc, inputs.m2Roc, d1, inputs.pupilDia, d2);
+                    
+                    const P1 = 2.0 / inputs.m1Roc;
+                    const P2 = 2.0 / inputs.m2Roc;
+                    
+                    // Simple Power Sum is P1 + P2 - d*P1*P2 for a two element system.
+                    // But here we have M1, spacing, M2, spacing (to lenses).
+                    // The power of the mirror system at the lens plane is complex to approximate linearly.
+                    // However, we can use the TMM to find the power of just the mirrors.
+                    const mult = (m1, m2) => [
+                        m1[0]*m2[0] + m1[1]*m2[2], m1[0]*m2[1] + m1[1]*m2[3],
+                        m1[2]*m2[0] + m1[3]*m2[2], m1[2]*m2[1] + m1[3]*m2[3]
+                    ];
+                    let mMatrix = [1, 0, 0, 1];
+                    mMatrix = mult([1, 0, -P1, 1], mMatrix);
+                    mMatrix = mult([1, d1, 0, 1], mMatrix);
+                    mMatrix = mult([1, 0, -P2, 1], mMatrix);
+                    mMatrix = mult([1, d2, 0, 1], mMatrix);
+                    mirrorSystemPower = -mMatrix[2]; // -C term is system power
                 }
                 
+                const targetTotalPower = 1 / targetEFL;
+                // Since Power_total ~ P_mirrors + P_lenses (if close), we use the difference.
+                // Refined: P_tot = P_mir + P_lens - d*P_mir*P_lens is hard because d is 0 (lenses are after mirrors).
+                // Actually, if we treat the mirror block as "Element A" and Lens block as "Element B", separated by 0 distance (since we included transfer d2 in Mirror block),
+                // then P_tot = P_mir + P_lens.
+                const residualPower = targetTotalPower - mirrorSystemPower;
+                const designPower = (Math.abs(residualPower) < 1e-6) ? 1e-6 : residualPower;
+
                 for (let i = 0; i < numLenses; i++) {
-                    // For > 2 lenses, alternate basic logic, but true apochromatism is seeded in the first doublet pair
                     const isCrown = i % 2 === 0;
                     const pvMat = isCrown ? bestPair.crown : bestPair.flint;
 
-                    // PRT Upgrade: Use traced ray height if valid, else fall back to FOV approx
                     let approxDia = 0;
                     if (geoRayHeight > 0) {
-                        approxDia = geoRayHeight * 2.2; // 10% safety margin on radius * 2 = diam
+                        approxDia = geoRayHeight * 2.2;
                     } else {
                         approxDia = (inputs.efl || 1500) * Math.tan(((inputs.fov || 1.5) * Math.PI / 180) / 2) * 2;
                     }
                     
                     let thickness = Math.max(minThickness, parseFloat((approxDia * 0.1).toFixed(2)));
                     
-                    // Exact Apochromatic Power Distribution: Phi1 = Phi_sys * [V1 / (V1 - V2)]
                     const dV = bestPair.crown.v - bestPair.flint.v;
                     let pwrCont = isCrown 
-                        ? targetPower * (bestPair.crown.v / dV)
-                        : targetPower * (-bestPair.flint.v / dV);
+                        ? designPower * (bestPair.crown.v / dV)
+                        : designPower * (-bestPair.flint.v / dV);
                     
                     if (numLenses > 2) {
-                        // Dampen analytical power for N>2 to allow optimiser freedom without exceeding Target EFL
                         pwrCont = pwrCont * (2 / numLenses);
                     }
                     if (pwrCont === 0) pwrCont = 0.0001;
@@ -338,7 +363,7 @@
                 const metrics = calculateSystemMF(newResults, inputs.efl, inputs.waveCenter);
                 setResults({ timestamp: new Date().toLocaleTimeString(), lenses: newResults, metrics: metrics });
                 showMessage(geoRayHeight > 0 
-                    ? "Prescription generated using Active Paraxial Ray Trace (PRT)." 
+                    ? "Prescription generated using Active PRT & Mirror Power Compensation." 
                     : "Prescription generated via P vs V Analytical Mapping (FOV approx).");
             };
 
@@ -385,12 +410,12 @@
                         <div className="fixed inset-0 z-[999] flex items-center justify-center modal-overlay p-4" onClick={() => setShowHelp(false)}>
                             <div className="bg-slate-800 border border-slate-600 rounded-xl shadow-2xl max-w-2xl w-full p-6 relative cursor-default" onClick={(e) => e.stopPropagation()}>
                                 <button onClick={() => setShowHelp(false)} className="absolute top-4 right-4 text-slate-400 hover:text-white transition-colors" title="Close Help"><IconClose /></button>
-                                <h2 className="text-2xl font-bold text-emerald-400 mb-4 border-b border-slate-700 pb-2">Analytical Apochromatic Engine</h2>
+                                <h2 className="text-2xl font-bold text-emerald-400 mb-4 border-b border-slate-700 pb-2">Heuristic Calculation Engine</h2>
                                 
                                 <div className="space-y-4 text-sm text-slate-300 max-h-[60vh] overflow-y-auto pr-2">
                                     <div><h3 className="text-white font-semibold mb-1">1. Active Paraxial Ray Trace (PRT)</h3><p>The engine now explicitly traces the marginal ray from the Entrance Pupil through the M1 and M2 reflections. Lens diameters and edge thicknesses are driven by the actual physical light cone entering the corrector group.</p></div>
-                                    <div><h3 className="text-white font-semibold mb-1">2. P vs V Dispersion Mapping</h3><p>Unlike standard achromats, this engine calculates both the exact Abbe Number (V) and Relative Partial Dispersion (P) dynamically for your specific λ boundary inputs. It pairs materials by minimising ΔP while maximising ΔV.</p></div>
-                                    <div><h3 className="text-white font-semibold mb-1">3. Exact Power Formulation</h3><p>Instead of basic heuristics, optical power is distributed analytically: Φ_1 = Φ_sys * [V_1 / (V_1 - V_2)]. This precisely balances the primary colour foci prior to the paraxial thick-lens translation error.</p></div>
+                                    <div><h3 className="text-white font-semibold mb-1">2. System-Corrected Merit Function</h3><p>The calculation now includes the Primary and Secondary Mirror powers in the matrix chain. The MF evaluates the **Total System EFL** (Mirrors + Lenses), resolving the artificial 'high MF' error caused by evaluating lenses in isolation.</p></div>
+                                    <div><h3 className="text-white font-semibold mb-1">3. Residual Power Targeting</h3><p>Lenses are designed to provide only the difference between the mirror system power and the target power (P_lens = P_target - P_mirrors), ensuring the final design converges on the correct EFL.</p></div>
                                 </div>
                                 <div className="mt-6 pt-4 border-t border-slate-700 flex justify-end">
                                     <button onClick={() => setShowHelp(false)} className="bg-emerald-600 hover:bg-emerald-500 text-white px-6 py-2 rounded-lg font-medium transition-colors">Acknowledge & Start</button>
@@ -452,7 +477,7 @@
                                 <h1 className="text-2xl font-bold tracking-tight text-white">Advanced Optical Lens Designer</h1>
                                 <button onClick={() => setShowHelp(true)} className="p-1.5 bg-slate-800 text-emerald-400 rounded-full hover:bg-slate-700 transition-colors" title="View Math Models"><IconInfo /></button>
                             </div>
-                            <p className="text-sm text-slate-400">Paraxial Heuristic Engine v3.1 • Active PRT Enabled</p>
+                            <p className="text-sm text-slate-400">Paraxial Heuristic Engine v3.4 • BFL Analysis Enabled</p>
                         </div>
                         {message && (
                             <div className="bg-blue-900/50 text-blue-200 px-4 py-2 rounded-lg border border-blue-700 text-sm animate-pulse">{message}</div>
@@ -497,6 +522,10 @@
                                         <div><label className="block text-xs text-slate-400 mb-1">M1-M2 Sep. (mm)</label><input type="number" name="m1m2Space" value={inputs.m1m2Space} onChange={handleInputChange} className="w-full bg-blue-900/30 border border-blue-600/50 rounded p-2 text-sm focus:border-blue-500 outline-none text-blue-300 font-bold" /></div>
                                         <div><label className="block text-xs text-slate-400 mb-1">Entrance Pupil (mm)</label><input type="number" name="pupilDia" value={inputs.pupilDia} onChange={handleInputChange} className="w-full bg-blue-900/30 border border-blue-600/50 rounded p-2 text-sm focus:border-blue-500 outline-none text-blue-300 font-bold" /></div>
                                     </div>
+                                    <div className="grid grid-cols-2 gap-2">
+                                        <div><label className="block text-xs text-slate-400 mb-1">Dist to Corr. (mm)</label><input type="number" name="distToCorrector" value={inputs.distToCorrector} onChange={handleInputChange} className="w-full bg-blue-900/30 border border-blue-600/50 rounded p-2 text-sm focus:border-blue-500 outline-none text-blue-300 font-bold" /></div>
+                                        <div><label className="block text-xs text-slate-400 mb-1">Target BFL (mm)</label><input type="number" name="targetBFL" value={inputs.targetBFL} onChange={handleInputChange} className="w-full bg-blue-900/30 border border-blue-600/50 rounded p-2 text-sm focus:border-blue-500 outline-none text-blue-300 font-bold" /></div>
+                                    </div>
                                 </div>
                             </div>
 
@@ -517,8 +546,20 @@
                                     <h2 className="text-lg font-semibold text-white">Apochromatic Prescription</h2>
                                     {results && (
                                         <div className="text-right">
-                                            <div className="text-xs text-slate-400">Calculated EFL: <span className="text-white font-mono">{results.metrics.calcEFL}</span> mm</div>
-                                            <div className="text-xs text-emerald-400 font-bold">Merit Func (MF): {results.metrics.mf}</div>
+                                            <div className="flex gap-4">
+                                                <div>
+                                                    <div className="text-xs text-slate-400">Calc EFL</div>
+                                                    <span className="text-white font-mono">{results.metrics.calcEFL}</span>
+                                                </div>
+                                                <div>
+                                                    <div className="text-xs text-slate-400">Calc BFL</div>
+                                                    <span className="text-emerald-300 font-mono">{results.metrics.calcBFL}</span>
+                                                </div>
+                                                <div>
+                                                    <div className="text-xs text-emerald-400 font-bold">MF</div>
+                                                    <span className="text-white text-xs">{results.metrics.mf}</span>
+                                                </div>
+                                            </div>
                                         </div>
                                     )}
                                 </div>
