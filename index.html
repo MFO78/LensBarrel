@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Advanced Optical Lens Designer</title>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { background-color: #0f172a; color: #f8fafc; font-family: 'Inter', system-ui, sans-serif; }
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: #1e293b; }
+        ::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #64748b; }
+        .glass-panel { background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(10px); border: 1px solid #334155; }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+
+        // Initial Micro-Catalogue (EU/Global standards)
+        const initialDatabase = [
+            { id: 'N-BK7-SCHOTT', name: 'N-BK7', catalog: 'SCHOTT', nd: 1.5168, vd: 64.17 },
+            { id: 'F2-SCHOTT', name: 'F2', catalog: 'SCHOTT', nd: 1.6200, vd: 36.37 },
+            { id: 'CaF2-SCHOTT', name: 'CaF2', catalog: 'SCHOTT', nd: 1.4338, vd: 95.10 },
+            { id: 'H-K9L-CDGM', name: 'H-K9L', catalog: 'CDGM', nd: 1.5168, vd: 64.20 },
+            { id: 'H-F4-CDGM', name: 'H-F4', catalog: 'CDGM', nd: 1.6166, vd: 36.61 },
+            { id: '7980_0F-CORNING', name: '7980_0F', catalog: 'CORNING', nd: 1.4585, vd: 67.82 }
+        ];
+
+        // Icons
+        const IconUpload = () => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>;
+        const IconSearch = () => <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>;
+        const IconPlay = () => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>;
+
+        const App = () => {
+            // State
+            const [database, setDatabase] = useState(initialDatabase);
+            const [searchTerm, setSearchTerm] = useState('');
+            const [filterCatalog, setFilterCatalog] = useState('ALL');
+            const [message, setMessage] = useState('');
+            
+            // System Inputs State
+            const [inputs, setInputs] = useState({
+                numLenses: 2,
+                efl: 1500,
+                fov: 1.5,
+                waveCenter: 587.6,
+                waveBand: 200,
+                m1Roc: -3000,
+                m1Conic: -1,
+                m2Roc: -500,
+                m2Conic: -2.5
+            });
+
+            const [results, setResults] = useState(null);
+
+            // AGF File Parser
+            const handleFileUpload = (event) => {
+                const file = event.target.files[0];
+                if (!file) return;
+
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const text = e.target.result;
+                    const lines = text.split(/\r?\n/);
+                    let catalogName = file.name.replace('.AGF', '').toUpperCase();
+                    let newGlasses = [];
+
+                    lines.forEach(line => {
+                        if (line.startsWith('NM ')) {
+                            // Example: NM BK7G18 2 520636.252 1.51975 63.58 0 1
+                            const parts = line.split(/\s+/);
+                            if (parts.length >= 6) {
+                                const name = parts[1];
+                                const nd = parseFloat(parts[4]);
+                                const vd = parseFloat(parts[5]);
+                                
+                                if (!isNaN(nd) && !isNaN(vd) && nd > 1.0) {
+                                    newGlasses.push({
+                                        id: `${name}-${catalogName}`,
+                                        name: name,
+                                        catalog: catalogName,
+                                        nd: nd,
+                                        vd: vd
+                                    });
+                                }
+                            }
+                        }
+                    });
+
+                    if (newGlasses.length > 0) {
+                        // Merge and deduplicate
+                        setDatabase(prev => {
+                            const merged = [...prev, ...newGlasses];
+                            const unique = Array.from(new Map(merged.map(item => [item.id, item])).values());
+                            return unique;
+                        });
+                        showMessage(`Successfully loaded ${newGlasses.length} materials from ${file.name}.`);
+                    } else {
+                        showMessage(`No valid material data found in ${file.name}.`, true);
+                    }
+                };
+                reader.readAsText(file);
+            };
+
+            const showMessage = (msg, isError = false) => {
+                setMessage(msg);
+                setTimeout(() => setMessage(''), 4000);
+            };
+
+            const handleInputChange = (e) => {
+                const { name, value } = e.target;
+                setInputs(prev => ({ ...prev, [name]: parseFloat(value) || value }));
+            };
+
+            // Heuristic Paraxial Optimisation
+            const runOptimisation = () => {
+                if (database.length < 2) {
+                    showMessage("Database requires at least 2 materials to run optimisation.", true);
+                    return;
+                }
+
+                // Sort database to find distinct Crown and Flint glasses
+                const sortedDb = [...database].sort((a, b) => b.vd - a.vd);
+                const crownGlasses = sortedDb.slice(0, Math.max(1, Math.floor(sortedDb.length / 3)));
+                const flintGlasses = sortedDb.slice(Math.max(1, Math.floor(sortedDb.length * 2 / 3)));
+
+                let newResults = [];
+                let currentPower = 1 / inputs.efl; // Simplification of required system power
+                
+                // Heuristic: Assign materials and rough radii
+                for (let i = 0; i < inputs.numLenses; i++) {
+                    // Alternate Crown and Flint
+                    const isCrown = i % 2 === 0;
+                    const pool = isCrown ? crownGlasses : flintGlasses;
+                    // Pick a random or top material from the pool to avoid always picking the exact same
+                    const mat = pool[Math.floor(Math.random() * Math.min(3, pool.length))] || pool[0];
+
+                    // Heuristic thicknes based on overall focal length and FoV (proxy for diameter)
+                    const approxDia = inputs.efl * Math.tan((inputs.fov * Math.PI / 180) / 2) * 2;
+                    let thickness = Math.max(2.0, (approxDia * 0.1).toFixed(2));
+                    
+                    // Heuristic Radii (Lensmaker's proxy)
+                    // Assuming equiconvex for positive (Crown) and equiconcave for negative (Flint)
+                    let pwrCont = (isCrown ? 1 : -0.5) * (currentPower * 0.5); 
+                    if (pwrCont === 0) pwrCont = 0.001;
+                    
+                    let r1 = ((mat.nd - 1) / pwrCont).toFixed(2);
+                    let r2 = (-r1).toFixed(2); // Equiconvex/concave
+                    
+                    // Clamp unrealistic radii
+                    if (Math.abs(r1) > 10000) r1 = "Infinity";
+                    if (Math.abs(r2) > 10000) r2 = "Infinity";
+
+                    newResults.push({
+                        lensNum: i + 1,
+                        material: mat.name,
+                        catalog: mat.catalog,
+                        nd: mat.nd.toFixed(4),
+                        vd: mat.vd.toFixed(2),
+                        r1: r1,
+                        r2: r2,
+                        thickness: thickness,
+                        conic: 0 // Default heuristic conic for spherical initial guess
+                    });
+                }
+
+                setResults({
+                    timestamp: new Date().toLocaleTimeString(),
+                    lenses: newResults
+                });
+                showMessage("Heuristic prescription generated successfully.");
+            };
+
+            // Filtering
+            const filteredDB = database.filter(g => 
+                (filterCatalog === 'ALL' || g.catalog === filterCatalog) &&
+                (g.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
+                 g.catalog.toLowerCase().includes(searchTerm.toLowerCase()))
+            );
+
+            const catalogs = ['ALL', ...new Set(database.map(g => g.catalog))];
+
+            return (
+                <div className="min-h-screen p-4 md:p-6 flex flex-col gap-6">
+                    {/* Header */}
+                    <header className="flex justify-between items-center pb-4 border-b border-slate-700">
+                        <div>
+                            <h1 className="text-2xl font-bold tracking-tight text-white">Advanced Optical Lens Designer</h1>
+                            <p className="text-sm text-slate-400">Paraxial Heuristic Engine v1.0 • EU-Centric Build</p>
+                        </div>
+                        {message && (
+                            <div className="bg-blue-900/50 text-blue-200 px-4 py-2 rounded-lg border border-blue-700 text-sm animate-pulse">
+                                {message}
+                            </div>
+                        )}
+                    </header>
+
+                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 flex-1">
+                        
+                        {/* LEFT COLUMN: Inputs */}
+                        <div className="lg:col-span-3 space-y-4">
+                            <div className="glass-panel p-4 rounded-xl">
+                                <h2 className="text-lg font-semibold mb-4 text-emerald-400">System Parameters</h2>
+                                <div className="space-y-3">
+                                    <div>
+                                        <label className="block text-xs text-slate-400 mb-1">Number of Lenses (Corrector)</label>
+                                        <input type="number" name="numLenses" value={inputs.numLenses} onChange={handleInputChange} min="1" max="10" className="w-full bg-slate-800 border border-slate-600 rounded p-2 text-sm focus:border-emerald-500 outline-none" />
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-2">
+                                        <div>
+                                            <label className="block text-xs text-slate-400 mb-1">Overall EFL (mm)</label>
+                                            <input type="number" name="efl" value={inputs.efl} onChange={handleInputChange} className="w-full bg-slate-800 border border-slate-600 rounded p-2 text-sm focus:border-emerald-500 outline-none" />
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs text-slate-400 mb-1">Overall FoV (°)</label>
+                                            <input type="number" name="fov" value={inputs.fov} onChange={handleInputChange} className="w-full bg-slate-800 border border-slate-600 rounded p-2 text-sm focus:border-emerald-500 outline-none" />
+                                        </div>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-2">
+                                        <div>
+                                            <label className="block text-xs text-slate-400 mb-1">λ Center (nm)</label>
+                                            <input type="number" name="waveCenter" value={inputs.waveCenter} onChange={handleInputChange} className="w-full bg-slate-800 border border-slate-600 rounded p-2 text-sm focus:border-emerald-500 outline-none" />
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs text-slate-400 mb-1">λ Band (nm)</label>
+                                            <input type="number" name="waveBand" value={inputs.waveBand} onChange={handleInputChange} className="w-full bg-slate-800 border border-slate-600 rounded p-2 text-sm focus:border-emerald-500 outline-none" />
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="glass-panel p-4 rounded-xl">
+                                <h2 className="text-lg font-semibold mb-4 text-blue-400">Reflector Geometry</h2>
+                                <div className="space-y-4">
+                                    <div className="grid grid-cols-2 gap-2">
+                                        <div>
+                                            <label className="block text-xs text-slate-400 mb-1">M1 Radius (mm)</label>
+                                            <input type="number" name="m1Roc" value={inputs.m1Roc} onChange={handleInputChange} className="w-full bg-slate-800 border border-slate-600 rounded p-2 text-sm focus:border-blue-500 outline-none" />
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs text-slate-400 mb-1">M1 Conic</label>
+                                            <input type="number" name="m1Conic" value={inputs.m1Conic} onChange={handleInputChange} className="w-full bg-slate-800 border border-slate-600 rounded p-2 text-sm focus:border-blue-500 outline-none" />
+                                        </div>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-2">
+                                        <div>
+                                            <label className="block text-xs text-slate-400 mb-1">M2 Radius (mm)</label>
+                                            <input type="number" name="m2Roc" value={inputs.m2Roc} onChange={handleInputChange} className="w-full bg-slate-800 border border-slate-600 rounded p-2 text-sm focus:border-blue-500 outline-none" />
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs text-slate-400 mb-1">M2 Conic</label>
+                                            <input type="number" name="m2Conic" value={inputs.m2Conic} onChange={handleInputChange} className="w-full bg-slate-800 border border-slate-600 rounded p-2 text-sm focus:border-blue-500 outline-none" />
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <button 
+                                onClick={runOptimisation}
+                                className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-medium py-3 px-4 rounded-xl transition-colors flex items-center justify-center gap-2 shadow-lg shadow-emerald-900/20">
+                                <IconPlay /> Run Heuristic Optimisation
+                            </button>
+                        </div>
+
+                        {/* CENTER COLUMN: Results */}
+                        <div className="lg:col-span-5 flex flex-col gap-4">
+                            <div className="glass-panel rounded-xl flex-1 flex flex-col overflow-hidden">
+                                <div className="p-4 border-b border-slate-700 bg-slate-800/50 flex justify-between items-center">
+                                    <h2 className="text-lg font-semibold text-white">Optimised Prescription</h2>
+                                    {results && <span className="text-xs text-slate-400">Last run: {results.timestamp}</span>}
+                                </div>
+                                <div className="p-4 flex-1 overflow-auto">
+                                    {!results ? (
+                                        <div className="h-full flex flex-col items-center justify-center text-slate-500 space-y-4">
+                                            <div className="w-16 h-16 rounded-full border-4 border-slate-700 border-t-emerald-500 animate-spin"></div>
+                                            <p>Awaiting System Inputs...</p>
+                                        </div>
+                                    ) : (
+                                        <div className="space-y-4">
+                                            {results.lenses.map((lens, idx) => (
+                                                <div key={idx} className="bg-slate-800 border border-slate-600 rounded-lg p-3">
+                                                    <div className="flex justify-between items-center mb-2">
+                                                        <h3 className="font-bold text-emerald-400">Lens {lens.lensNum}</h3>
+                                                        <span className="text-xs px-2 py-1 bg-slate-700 rounded text-slate-300">{lens.catalog}</span>
+                                                    </div>
+                                                    <div className="grid grid-cols-2 gap-y-2 gap-x-4 text-sm">
+                                                        <div className="flex justify-between">
+                                                            <span className="text-slate-400">Material:</span>
+                                                            <span className="font-mono text-white">{lens.material}</span>
+                                                        </div>
+                                                        <div className="flex justify-between">
+                                                            <span className="text-slate-400">Thickness:</span>
+                                                            <span className="font-mono text-white">{lens.thickness} mm</span>
+                                                        </div>
+                                                        <div className="flex justify-between">
+                                                            <span className="text-slate-400">Index (Nd):</span>
+                                                            <span className="font-mono text-white">{lens.nd}</span>
+                                                        </div>
+                                                        <div className="flex justify-between">
+                                                            <span className="text-slate-400">Abbe (Vd):</span>
+                                                            <span className="font-mono text-white">{lens.vd}</span>
+                                                        </div>
+                                                        <div className="flex justify-between">
+                                                            <span className="text-slate-400">R1 / Conic:</span>
+                                                            <span className="font-mono text-white">{lens.r1} / {lens.conic}</span>
+                                                        </div>
+                                                        <div className="flex justify-between">
+                                                            <span className="text-slate-400">R2 / Conic:</span>
+                                                            <span className="font-mono text-white">{lens.r2} / {lens.conic}</span>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                            <div className="mt-4 p-3 bg-blue-900/30 border border-blue-800/50 rounded-lg text-xs text-blue-200">
+                                                <strong>Note:</strong> This is a paraxial first-order approximation. For manufacturing procurement, export these start parameters to Zemax OpticStudio for damped least-squares MTF tolerancing.
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* RIGHT COLUMN: Database */}
+                        <div className="lg:col-span-4 flex flex-col gap-4">
+                            <div className="glass-panel rounded-xl flex-1 flex flex-col overflow-hidden max-h-[800px]">
+                                <div className="p-4 border-b border-slate-700 bg-slate-800/50 space-y-3">
+                                    <div className="flex justify-between items-center">
+                                        <h2 className="text-lg font-semibold text-white flex items-center gap-2">
+                                            Material Database
+                                            <span className="bg-slate-700 text-xs py-0.5 px-2 rounded-full">{database.length}</span>
+                                        </h2>
+                                    </div>
+                                    
+                                    <div className="flex gap-2">
+                                        <div className="relative flex-1">
+                                            <div className="absolute inset-y-0 left-0 pl-2 flex items-center pointer-events-none text-slate-400">
+                                                <IconSearch />
+                                            </div>
+                                            <input 
+                                                type="text" 
+                                                placeholder="Search glass..." 
+                                                className="w-full pl-8 pr-2 py-1.5 bg-slate-900 border border-slate-600 rounded text-sm focus:border-emerald-500 outline-none text-white"
+                                                value={searchTerm}
+                                                onChange={(e) => setSearchTerm(e.target.value)}
+                                            />
+                                        </div>
+                                        <select 
+                                            className="bg-slate-900 border border-slate-600 rounded px-2 py-1.5 text-sm text-white focus:border-emerald-500 outline-none"
+                                            value={filterCatalog}
+                                            onChange={(e) => setFilterCatalog(e.target.value)}
+                                        >
+                                            {catalogs.map(cat => <option key={cat} value={cat}>{cat}</option>)}
+                                        </select>
+                                    </div>
+                                </div>
+
+                                <div className="flex-1 overflow-auto p-2">
+                                    <table className="w-full text-sm text-left">
+                                        <thead className="text-xs text-slate-400 bg-slate-800/50 sticky top-0">
+                                            <tr>
+                                                <th className="px-3 py-2 rounded-tl">Name</th>
+                                                <th className="px-3 py-2">Cat.</th>
+                                                <th className="px-3 py-2">Nd</th>
+                                                <th className="px-3 py-2 rounded-tr">Vd</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {filteredDB.map((glass, idx) => (
+                                                <tr key={idx} className="border-b border-slate-700/50 hover:bg-slate-800 transition-colors">
+                                                    <td className="px-3 py-2 font-mono text-emerald-400">{glass.name}</td>
+                                                    <td className="px-3 py-2 text-xs text-slate-400">{glass.catalog}</td>
+                                                    <td className="px-3 py-2 font-mono">{glass.nd.toFixed(4)}</td>
+                                                    <td className="px-3 py-2 font-mono">{glass.vd.toFixed(2)}</td>
+                                                </tr>
+                                            ))}
+                                            {filteredDB.length === 0 && (
+                                                <tr>
+                                                    <td colSpan="4" className="text-center py-4 text-slate-500">No materials found.</td>
+                                                </tr>
+                                            )}
+                                        </tbody>
+                                    </table>
+                                </div>
+                                
+                                <div className="p-3 border-t border-slate-700 bg-slate-800/30">
+                                    <label className="flex items-center justify-center gap-2 w-full border-2 border-dashed border-slate-600 rounded-lg p-3 hover:border-emerald-500 hover:bg-slate-800 transition-colors cursor-pointer group">
+                                        <IconUpload />
+                                        <span className="text-sm text-slate-400 group-hover:text-emerald-400 transition-colors">Upload .AGF Database</span>
+                                        <input type="file" accept=".agf" className="hidden" onChange={handleFileUpload} />
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
