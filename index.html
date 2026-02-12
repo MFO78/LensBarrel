@@ -318,7 +318,7 @@
                                 <h1 className="text-2xl font-bold tracking-tight text-white">Advanced Optical Lens Designer</h1>
                                 <button onClick={() => setShowHelp(true)} className="p-1.5 bg-slate-800 text-emerald-400 rounded-full hover:bg-slate-700" title="View Math Models"><IconInfo /></button>
                             </div>
-                            <p className="text-sm text-slate-400">Paraxial Heuristic Engine v2.0 • Dispersion & Matrix MF Enabled</p>
+                            <p className="text-sm text-slate-400">Paraxial Heuristic Engine v2.1 • Dispersion & Reflector Geometry Enabled</p>
                         </div>
                         {message && (
                             <div className="bg-blue-900/50 text-blue-200 px-4 py-2 rounded-lg border border-blue-700 text-sm animate-pulse">{message}</div>
@@ -358,6 +358,34 @@
                                     </div>
                                 </div>
                             </div>
+
+                            {/* RESTORED M1/M2 PANEL */}
+                            <div className="glass-panel p-4 rounded-xl">
+                                <h2 className="text-lg font-semibold mb-4 text-blue-400">Reflector Geometry</h2>
+                                <div className="space-y-4">
+                                    <div className="grid grid-cols-2 gap-2">
+                                        <div>
+                                            <label className="block text-xs text-slate-400 mb-1">M1 Radius (mm)</label>
+                                            <input type="number" name="m1Roc" value={inputs.m1Roc} onChange={handleInputChange} className="w-full bg-slate-800 border border-slate-600 rounded p-2 text-sm focus:border-blue-500 outline-none text-white" />
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs text-slate-400 mb-1">M1 Conic</label>
+                                            <input type="number" name="m1Conic" value={inputs.m1Conic} onChange={handleInputChange} className="w-full bg-slate-800 border border-slate-600 rounded p-2 text-sm focus:border-blue-500 outline-none text-white" />
+                                        </div>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-2">
+                                        <div>
+                                            <label className="block text-xs text-slate-400 mb-1">M2 Radius (mm)</label>
+                                            <input type="number" name="m2Roc" value={inputs.m2Roc} onChange={handleInputChange} className="w-full bg-slate-800 border border-slate-600 rounded p-2 text-sm focus:border-blue-500 outline-none text-white" />
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs text-slate-400 mb-1">M2 Conic</label>
+                                            <input type="number" name="m2Conic" value={inputs.m2Conic} onChange={handleInputChange} className="w-full bg-slate-800 border border-slate-600 rounded p-2 text-sm focus:border-blue-500 outline-none text-white" />
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
                             <button onClick={runOptimisation} className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-medium py-3 px-4 rounded-xl transition-colors flex items-center justify-center gap-2 shadow-lg shadow-emerald-900/20">
                                 <IconPlay /> Run Baseline Optimisation
                             </button>
