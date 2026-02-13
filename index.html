@@ -152,8 +152,6 @@
                 const sysPower = -currentMatrix[2];
                 const calcEFL = sysPower !== 0 ? 1 / sysPower : 999999;
                 
-                // Back Focal Length (Distance from last surface to focus)
-                // BFL = -A / C
                 const calcBFL = sysPower !== 0 ? -currentMatrix[0] / -sysPower : 0;
 
                 const mfRaw = Math.pow(Math.abs(calcEFL - targetEFL), 2);
@@ -239,31 +237,42 @@
                 setInputs(prev => ({ ...prev, [name]: parseFloat(value) || value }));
             };
 
+            // Main Optimisation Logic with Dynamic Partitioning
             const runApochromaticOptimisation = () => {
                 const validGlasses = database.filter(g => isValidWave(g, inputs.waveCenter));
                 if (validGlasses.length < 2) {
-                    showMessage("Error: Insufficient database materials support this λ wavelength.", true);
+                    showMessage("Error: Insufficient database materials (< 2) support this λ wavelength.", true);
                     return;
                 }
 
+                // Compute exact P and V
                 const pvMap = validGlasses.map(g => ({ glass: g, ...calculatePV(g) }));
                 
-                let bestPair = null;
-                let bestScore = -999999;
-                
-                const crowns = pvMap.filter(g => g.v > 50);
-                const flints = pvMap.filter(g => g.v <= 50);
-                
+                // Sort by V descending
+                pvMap.sort((a, b) => b.v - a.v);
+
+                // Dynamic Partitioning: Split the list in half.
+                // Top half = Relative Crowns (High V)
+                // Bottom half = Relative Flints (Low V)
+                const splitIndex = Math.floor(pvMap.length / 2);
+                const crowns = pvMap.slice(0, splitIndex);
+                const flints = pvMap.slice(splitIndex);
+
+                // Fallback check (shouldn't trigger if length >= 2)
                 if (crowns.length === 0 || flints.length === 0) {
-                    showMessage("Error: Database lacks sufficient dispersion variety for Apo mapping.", true);
+                    showMessage("Error: Could not partition database into relative Crown/Flint.", true);
                     return;
                 }
+
+                let bestPair = null;
+                let bestScore = -999999;
 
                 crowns.forEach(c => {
                     flints.forEach(f => {
                         const deltaP = Math.abs(c.p - f.p);
                         const deltaV = Math.abs(c.v - f.v);
-                        if (deltaV > 15) {
+                        if (deltaV > 1) { // Minimum threshold to avoid divide by zero
+                            // Weight score: Heavily penalise P mismatch, reward V difference
                             const score = deltaV - (deltaP * 5000); 
                             if (score > bestScore) {
                                 bestScore = score;
@@ -273,7 +282,7 @@
                     });
                 });
 
-                if (!bestPair) bestPair = { crown: crowns[0], flint: flints[0] };
+                if (!bestPair) bestPair = { crown: crowns[0], flint: flints[flints.length - 1] }; // Fallback to extremes
 
                 let newResults = [];
                 const targetEFL = inputs.efl || 1500;
@@ -300,7 +309,7 @@
                     mMatrix = mult([1, d1, 0, 1], mMatrix);
                     mMatrix = mult([1, 0, -P2, 1], mMatrix);
                     mMatrix = mult([1, d2, 0, 1], mMatrix);
-                    mirrorSystemPower = -mMatrix[2]; // -C term is system power
+                    mirrorSystemPower = -mMatrix[2]; 
                 }
                 
                 const targetTotalPower = 1 / targetEFL;
@@ -318,9 +327,6 @@
                         approxDia = (inputs.efl || 1500) * Math.tan(((inputs.fov || 1.5) * Math.PI / 180) / 2) * 2;
                     }
                     
-                    // Old thickness heuristic (removed)
-                    // let thickness = Math.max(minThickness, parseFloat((approxDia * 0.1).toFixed(2)));
-                    
                     const dV = bestPair.crown.v - bestPair.flint.v;
                     let pwrCont = isCrown 
                         ? designPower * (bestPair.crown.v / dV)
@@ -337,28 +343,21 @@
                     if (Math.abs(r1) > 10000) r1 = "Infinity";
                     if (Math.abs(r2) > 10000) r2 = "Infinity";
 
-                    // New Realistic Thickness Logic using Sag calculation
                     const safeRadius1 = Math.abs(parseFloat(r1)) > 0 ? Math.abs(parseFloat(r1)) : 1e9;
                     const safeRadius2 = Math.abs(parseFloat(r2)) > 0 ? Math.abs(parseFloat(r2)) : 1e9;
                     const semiDiam = approxDia / 2;
                     
-                    // Sag approx: y^2 / 2R
                     const sag1 = (semiDiam * semiDiam) / (2 * safeRadius1);
                     const sag2 = (semiDiam * semiDiam) / (2 * safeRadius2);
                     
-                    // For Positive (Crown) lenses: Center T > Edge T + Sags
-                    // For Negative (Flint) lenses: Center T = minThickness (Edge T will be larger)
                     let thickness = minThickness;
                     
-                    if (pwrCont > 0) { // Positive lens
-                       // Add sags to maintain minimum edge thickness at the rim
+                    if (pwrCont > 0) { 
                        thickness = minThickness + sag1 + sag2; 
-                    } else { // Negative lens
-                       // Center is the thinnest point, so clamp to min
+                    } else { 
                        thickness = minThickness;
                     }
                     
-                    // Safety clamp for extreme values
                     thickness = Math.min(Math.max(thickness, minThickness), approxDia * 2);
 
                     newResults.push({
@@ -412,9 +411,13 @@
                 const validWavelengthGlasses = database.filter(g => isValidWave(g, inputs.waveCenter));
                 const pvMap = validWavelengthGlasses.map(g => ({ glass: g, ...calculatePV(g) }));
                 
+                // Updated Dynamic Split for Swap Modal
+                pvMap.sort((a, b) => b.v - a.v);
+                const splitIndex = Math.floor(pvMap.length / 2);
+                
                 const basePool = swapContext.targetRole === 'CROWN' 
-                    ? pvMap.filter(g => g.v > 50)
-                    : pvMap.filter(g => g.v <= 50);
+                    ? pvMap.slice(0, splitIndex)
+                    : pvMap.slice(splitIndex);
 
                 swapPool = basePool.filter(pv => swapFilterCatalog === 'ALL' || pv.glass.catalog === swapFilterCatalog);
             }
@@ -449,7 +452,7 @@
                                     </div>
                                     <div>
                                         <h3 className="text-white font-semibold mb-1">4. Analytical Apochromatic Logic</h3>
-                                        <p>The solver dynamically calculates Abbe Number (V) and Relative Partial Dispersion (P) for your specific wavelength band. It pairs materials by minimising ΔP while maximising ΔV. Optical power is distributed using the equation Φ_1 = Φ_residual * [V_1 / (V_1 - V_2)] to target secondary spectrum elimination.</p>
+                                        <p>The solver dynamically calculates Abbe Number (V) and Relative Partial Dispersion (P) for your specific wavelength band. It sorts the valid materials and partitions them dynamically into relative "Crowns" (High V) and "Flints" (Low V) to maximize ΔV, even in non-visible spectra.</p>
                                     </div>
                                     <div>
                                         <h3 className="text-white font-semibold mb-1">5. Realistic Thickness Constraints</h3>
@@ -516,7 +519,7 @@
                                 <h1 className="text-2xl font-bold tracking-tight text-white">Advanced Optical Lens Designer</h1>
                                 <button onClick={() => setShowHelp(true)} className="p-1.5 bg-slate-800 text-emerald-400 rounded-full hover:bg-slate-700 transition-colors" title="View Math Models"><IconInfo /></button>
                             </div>
-                            <p className="text-sm text-slate-400">Paraxial Heuristic Engine v3.5 • Realistic Geometry</p>
+                            <p className="text-sm text-slate-400">Paraxial Heuristic Engine v3.6 • Dynamic Dispersion Partitioning</p>
                         </div>
                         {message && (
                             <div className="bg-blue-900/50 text-blue-200 px-4 py-2 rounded-lg border border-blue-700 text-sm animate-pulse">{message}</div>
